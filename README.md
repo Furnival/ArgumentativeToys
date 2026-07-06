@@ -1,0 +1,1 @@
+Argumentative Toys are simulation like single page javascript html files that are toy-like in that they are not serious simulations and are argumentative in the sense that they exist to make an argument. 
