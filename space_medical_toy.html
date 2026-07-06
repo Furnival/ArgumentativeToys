@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Problem with Waiting</title>
+<style>
+  :root{
+    --bg:#0a0a0a; --panel:#141414; --panel2:#1b1b1b; --line:#2a2a2a;
+    --text:#d8d8d8; --dim:#8a8a8a; --accent:#5fb3ff; --warn:#e0c34a;
+    --bad:#ff5c5c; --good:#5fd68a; --mono: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    --sans: -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    background:var(--bg); color:var(--text); font-family:var(--sans);
+    margin:0; padding:24px 16px 60px; max-width:920px; margin-inline:auto;
+  }
+  h1{font-size:1.4rem; font-weight:600; margin:0 0 6px;}
+  .lede{color:var(--dim); font-size:0.92rem; line-height:1.55; max-width:760px; margin:0 0 22px;}
+  .scenarios{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:22px;}
+  .scenario-btn{
+    background:var(--panel2); border:1px solid var(--line); color:var(--text);
+    padding:10px 14px; border-radius:8px; cursor:pointer; font-size:0.85rem;
+    font-family:var(--sans); text-align:left; flex:1 1 220px; min-width:200px;
+  }
+  .scenario-btn:hover{border-color:var(--accent);}
+  .scenario-btn b{display:block; margin-bottom:3px; color:var(--accent); font-size:0.88rem;}
+  .grid{display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:16px;}
+  @media(max-width:700px){ .grid{grid-template-columns:1fr;} }
+  .panel{
+    background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px;
+  }
+  .panel h2{font-size:0.78rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--dim); margin:0 0 12px; font-weight:600;}
+  .controls-row{display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px;}
+  .ctrl{display:flex; flex-direction:column; gap:4px; flex:1 1 160px;}
+  .ctrl label{font-size:0.72rem; color:var(--dim); text-transform:uppercase; letter-spacing:0.04em;}
+  select{
+    background:var(--panel2); color:var(--text); border:1px solid var(--line);
+    border-radius:6px; padding:7px 8px; font-family:var(--sans); font-size:0.85rem;
+  }
+  select:disabled{opacity:0.5;}
+  .status-line{display:flex; align-items:baseline; gap:14px; margin-bottom:10px;}
+  .status-big{font-size:1.9rem; font-weight:700; font-family:var(--mono); letter-spacing:0.02em;}
+  .status-ALIVE{color:var(--good);}
+  .status-DEAD{color:var(--bad);}
+  .status-STABILIZED{color:var(--accent);}
+  .status-CRITICAL{color:var(--warn);}
+  .vitals{display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; font-family:var(--mono); font-size:0.85rem;}
+  .vitals span.k{color:var(--dim); font-family:var(--sans);}
+  .bar-wrap{background:var(--panel2); border-radius:4px; height:8px; overflow:hidden; margin-top:3px;}
+  .bar{height:100%; transition:width 0.3s ease;}
+  .comms-readout{font-family:var(--mono); font-size:0.85rem; line-height:1.9;}
+  .comms-readout .k{color:var(--dim); font-family:var(--sans); display:inline-block; width:120px;}
+  .transit{
+    margin-top:10px; padding:8px 10px; border-radius:6px; background:var(--panel2);
+    font-family:var(--mono); font-size:0.8rem; color:var(--warn); min-height:1.2em;
+  }
+  .turn-counter{font-family:var(--mono); font-size:0.8rem; color:var(--dim); margin-bottom:14px;}
+  .actions{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px;}
+  .act-btn{
+    flex:1 1 160px; background:var(--panel2); border:1px solid var(--line); color:var(--text);
+    padding:11px 10px; border-radius:8px; cursor:pointer; font-size:0.82rem; font-family:var(--sans);
+    text-align:left; line-height:1.35;
+  }
+  .act-btn b{display:block; font-size:0.86rem; margin-bottom:2px;}
+  .act-btn small{color:var(--dim); display:block;}
+  .act-btn:hover:not(:disabled){border-color:var(--accent);}
+  .act-btn:disabled{opacity:0.35; cursor:not-allowed;}
+  .log{
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:14px 16px; height:180px; overflow-y:auto; font-family:var(--mono);
+    font-size:0.8rem; line-height:1.65; margin-bottom:16px;
+  }
+  .log h2{margin-top:0;}
+  .log-entry{color:var(--text); border-bottom:1px dashed var(--line); padding:3px 0;}
+  .log-entry .t{color:var(--dim); margin-right:8px;}
+  .log-entry.warn{color:var(--warn);}
+  .log-entry.bad{color:var(--bad);}
+  .log-entry.good{color:var(--good);}
+  details.notes{
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:12px 16px; margin-bottom:20px;
+  }
+  details.notes summary{cursor:pointer; font-size:0.85rem; color:var(--accent); font-weight:600;}
+  details.notes ul{margin:10px 0 0; padding-left:20px; color:var(--dim); font-size:0.82rem; line-height:1.6;}
+  .verdict{
+    color:var(--dim); font-size:0.95rem; border-top:1px solid var(--line);
+    padding-top:16px; margin-top:8px; font-style:italic;
+  }
+</style>
+</head>
+<body>
+
+<h1>The Problem with Waiting</h1>
+<p class="lede">
+This toy is an argumentative model, not a faithful medical simulator. It simplifies a single question:
+how do you shape a communications channel when a time-critical medical decision has to cross distance and
+latency? The case here is space medicine, but the same tradeoffs appear in any remote outpost, from orbital
+stations to Antarctica. As the outpost moves farther from help, delay becomes its own clinical variable, and
+a narrow, structured channel can start to outperform a richer, bedside-style exchange. The medium shifts
+from conversation toward a coded decision tree: less interactive, more predetermined, but able to carry a
+treatment decision in time to matter. Yet if you use medication while uncertain of the prognosis, you may run 
+out of your limited supply of medication for this patient or for future ones. 
+</p>
+
+<div class="scenarios">
+  <button class="scenario-btn" data-scenario="leo">
+    <b>The LEO Illusion</b>
+    Close enough that a full voice consult still wins. Bandwidth beats structure here.
+  </button>
+  <button class="scenario-btn" data-scenario="lunar">
+    <b>The Lunar Squeeze</b>
+    Round-trip delay eats the safety margin. A coded channel starts to pull ahead.
+  </button>
+  <button class="scenario-btn" data-scenario="mars">
+    <b>The Mars Silence</b>
+    Twenty minutes one way. Waiting for a rich consult is a decision to let the patient die.
+  </button>
+</div>
+
+<div class="controls-row">
+  <div class="ctrl">
+    <label for="distSel">Distance</label>
+    <select id="distSel">
+      <option value="leo">Low Earth Orbit</option>
+      <option value="lunar">Lunar Surface</option>
+      <option value="marstransit">Mars Transit</option>
+      <option value="mars">Mars Surface</option>
+    </select>
+  </div>
+  <div class="ctrl">
+    <label for="commsSel">Comms Channel</label>
+    <select id="commsSel">
+      <option value="voice">Live Voice + Video</option>
+      <option value="text">Text Relay</option>
+      <option value="coded">Coded Telemetry Burst</option>
+    </select>
+  </div>
+  <div class="ctrl">
+    <label for="autoSel">Crew Autonomy</label>
+    <select id="autoSel">
+      <option value="low">Low (follows script only)</option>
+      <option value="med">Medium (basic training)</option>
+      <option value="high">High (flight surgeon aboard)</option>
+    </select>
+  </div>
+  <div class="ctrl">
+    <label for="supSel">Medical Supplies</label>
+    <select id="supSel">
+      <option value="full">Full Kit</option>
+      <option value="limited">Limited</option>
+      <option value="minimal">Minimal</option>
+    </select>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="panel">
+    <h2>Patient State</h2>
+    <div class="status-line">
+      <div class="status-big status-ALIVE" id="statusBig">ALIVE</div>
+      <div class="turn-counter" id="turnCounter">Turn 0 / 6</div>
+    </div>
+    <div class="vitals">
+      <div>
+        <span class="k">Vitals</span>
+        <div class="bar-wrap"><div class="bar" id="barVitals" style="width:70%; background:var(--good);"></div></div>
+      </div>
+      <div>
+        <span class="k">Certainty of diagnosis</span>
+        <div class="bar-wrap"><div class="bar" id="barCertainty" style="width:25%; background:var(--accent);"></div></div>
+      </div>
+      <div>
+        <span class="k">Supplies remaining</span>
+        <div class="bar-wrap"><div class="bar" id="barSupplies" style="width:100%; background:var(--warn);"></div></div>
+      </div>
+      <div>
+        <span class="k">Crew cognitive load</span>
+        <div class="bar-wrap"><div class="bar" id="barLoad" style="width:15%; background:var(--bad);"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Communications</h2>
+    <div class="comms-readout">
+      <div><span class="k">Channel</span><span id="chanName">Live Voice + Video</span></div>
+      <div><span class="k">One-way latency</span><span id="latVal">~0.05 s</span></div>
+      <div><span class="k">Effective info/turn</span><span id="bwVal">High</span></div>
+      <div><span class="k">Round trip / turn</span><span id="rtVal">~0.1 s</span></div>
+    </div>
+    <div class="transit" id="transitLine">Channel idle.</div>
+  </div>
+</div>
+
+<div class="panel" style="margin-bottom:20px;">
+  <h2>Turn Actions</h2>
+  <div class="actions">
+    <button class="act-btn" data-action="fullconsult">
+      <b>Request Full Consult</b>
+      <small>Big certainty gain, costs a full round trip of delay.</small>
+    </button>
+    <button class="act-btn" data-action="compressed">
+      <b>Send Compressed Telemetry</b>
+      <small>Moderate certainty, faster, some crew load.</small>
+    </button>
+    <button class="act-btn" data-action="coded">
+      <b>Follow Coded Protocol</b>
+      <small>Small certainty gain, near-instant, low load.</small>
+    </button>
+    <button class="act-btn" data-action="treat">
+      <b>Administer Treatment</b>
+      <small>Uses current certainty to attempt to stabilize. Spends supplies.</small>
+    </button>
+    <button class="act-btn" data-action="wait">
+      <b>Wait / Observe</b>
+      <small>No action. Vitals keep declining.</small>
+    </button>
+  </div>
+</div>
+
+<div class="log panel">
+  <h2>Event Log</h2>
+  <div id="logBody"></div>
+</div>
+
+<details class="notes">
+  <summary>Model notes: where this toy lies</summary>
+  <ul>
+    <li>Vitals decay linearly per turn. Real septic shock decompensates nonlinearly and can crash without warning.</li>
+    <li>Certainty and supplies are unitless 0-100 scores standing in for a much messier diagnostic and logistics picture.</li>
+    <li>Latency numbers use rounded, representative one-way light-time and mission-profile figures, not live ephemeris data.</li>
+    <li>Crew cognitive load is a proxy for real factors like fatigue, stress, and training gaps, not a measured quantity.</li>
+    <li>There are exactly five actions and six turns. Real triage has no fixed clock and far more options.</li>
+    <li>The three preset scenarios are arguments, not predictions. Changing a dropdown after a preset loads breaks the story it was telling.</li>
+  </ul>
+</details>
+
+<p class="verdict" id="verdictLine">
+The channel that can carry a decision before the patient can't use it beats the channel that would have explained it better.
+</p>
+
+<script>
+(function(){
+  const DIST = {
+    leo:        { label:'Low Earth Orbit',  oneWay:0.05,  turnBase:1 },
+    lunar:      { label:'Lunar Surface',    oneWay:1.3,   turnBase:1 },
+    marstransit:{ label:'Mars Transit',     oneWay:600,   turnBase:1 },
+    mars:       { label:'Mars Surface',     oneWay:1200,  turnBase:1 }
+  };
+  const COMMS = {
+    voice: { label:'Live Voice + Video', rtMultiplier:1,    bwLabel:'High',   certGain:{full:34, comp:0, cod:0} },
+    text:  { label:'Text Relay',         rtMultiplier:0.6,  bwLabel:'Medium', certGain:{full:0, comp:22, cod:0} },
+    coded: { label:'Coded Telemetry Burst', rtMultiplier:0.15, bwLabel:'Low', certGain:{full:0, comp:0, cod:14} }
+  };
+  const AUTO = {
+    low:  { label:'Low',  treatBonus:-10, loadPerAction:9 },
+    med:  { label:'Medium', treatBonus:0,  loadPerAction:6 },
+    high: { label:'High', treatBonus:12,  loadPerAction:4 }
+  };
+  const SUPPLIES = {
+    full:    { label:'Full Kit', start:100, treatCost:18 },
+    limited: { label:'Limited',  start:55,  treatCost:26 },
+    minimal: { label:'Minimal',  start:25,  treatCost:34 }
+  };
+
+  const SCENARIOS = {
+    leo: {
+      dist:'leo', comms:'voice', auto:'med', sup:'full',
+      script: ['fullconsult','fullconsult','treat','fullconsult','treat','treat']
+    },
+    lunar: {
+      dist:'lunar', comms:'text', auto:'med', sup:'limited',
+      script: ['compressed','compressed','treat','compressed','treat','treat']
+    },
+    mars: {
+      dist:'mars', comms:'coded', auto:'high', sup:'limited',
+      script: ['coded','treat','coded','treat','coded','treat']
+    }
+  };
+
+  const el = id => document.getElementById(id);
+  const distSel = el('distSel'), commsSel = el('commsSel'), autoSel = el('autoSel'), supSel = el('supSel');
+  const statusBig = el('statusBig'), turnCounter = el('turnCounter');
+  const barVitals = el('barVitals'), barCertainty = el('barCertainty'), barSupplies = el('barSupplies'), barLoad = el('barLoad');
+  const chanName = el('chanName'), latVal = el('latVal'), bwVal = el('bwVal'), rtVal = el('rtVal'), transitLine = el('transitLine');
+  const logBody = el('logBody');
+  const actBtns = Array.from(document.querySelectorAll('.act-btn'));
+  const scenarioBtns = Array.from(document.querySelectorAll('.scenario-btn'));
+
+  let state = {};
+  let autoplaying = false;
+  let finished = false;
+
+  function fmtLatency(sec){
+    if(sec < 1) return '~' + sec.toFixed(2) + ' s';
+    if(sec < 60) return '~' + sec.toFixed(1) + ' s';
+    const min = sec/60;
+    if(min < 60) return '~' + min.toFixed(1) + ' min';
+    return '~' + (min/60).toFixed(1) + ' hr';
+  }
+
+  function log(msg, cls){
+    const line = document.createElement('div');
+    line.className = 'log-entry' + (cls ? ' '+cls : '');
+    line.innerHTML = '<span class="t">turn ' + state.turn + '</span>' + msg;
+    logBody.appendChild(line);
+    logBody.scrollTop = logBody.scrollHeight;
+  }
+
+  function updateCommsReadout(){
+    const d = DIST[state.dist], c = COMMS[state.comms];
+    chanName.textContent = c.label + ' - ' + d.label;
+    latVal.textContent = fmtLatency(d.oneWay);
+    bwVal.textContent = c.bwLabel;
+    rtVal.textContent = fmtLatency(d.oneWay * 2 * c.rtMultiplier);
+  }
+
+  function refreshBars(){
+    barVitals.style.width = Math.max(0,state.vitals) + '%';
+    barVitals.style.background = state.vitals > 55 ? 'var(--good)' : state.vitals > 25 ? 'var(--warn)' : 'var(--bad)';
+    barCertainty.style.width = Math.min(100,state.certainty) + '%';
+    barSupplies.style.width = Math.max(0,state.supplies) + '%';
+    barLoad.style.width = Math.min(100,state.load) + '%';
+    turnCounter.textContent = 'Turn ' + state.turn + ' / 6' + (finished ? ' - complete' : '');
+  }
+
+  function setStatus(label, cls){
+    statusBig.textContent = label;
+    statusBig.className = 'status-big status-' + cls;
+  }
+
+  function initState(dist, comms, auto, sup){
+    state = {
+      dist, comms, auto, sup,
+      turn: 0,
+      vitals: 68,
+      certainty: 15,
+      supplies: SUPPLIES[sup].start,
+      load: 10
+    };
+    finished = false;
+    logBody.innerHTML = '';
+    distSel.value = dist; commsSel.value = comms; autoSel.value = auto; supSel.value = sup;
+    updateCommsReadout();
+    refreshBars();
+    setStatus('ALIVE','ALIVE');
+    transitLine.textContent = 'Channel idle.';
+    log('Scenario initialized: ' + DIST[dist].label + ' via ' + COMMS[comms].label + '.', null);
+    setActionsEnabled(true);
+  }
+
+  function setActionsEnabled(on){
+    actBtns.forEach(b => b.disabled = !on || finished);
+  }
+
+  function applyDecay(){
+    let decay = 6;
+    if(state.dist === 'marstransit' || state.dist === 'mars') decay += 2;
+    if(SUPPLIES[state.sup].label === 'Minimal') decay += 2;
+    state.vitals = Math.max(0, state.vitals - decay);
+  }
+
+  function doAction(action){
+    if(finished) return;
+    const d = DIST[state.dist], c = COMMS[state.comms], a = AUTO[state.auto];
+    state.turn += 1;
+
+    if(action === 'fullconsult'){
+      const gain = c.certGain.full;
+      transitLine.textContent = 'Full consult round trip: ' + fmtLatency(d.oneWay*2*c.rtMultiplier) + ' elapsed.';
+      if(gain > 0){
+        state.certainty += gain;
+        state.load += a.loadPerAction + 4;
+        log('Full consult completed. Certainty +' + gain + '.', 'good');
+      } else {
+        log('Full consult attempted, but this channel cannot carry rich back-and-forth. No certainty gained; time was still spent.', 'bad');
+        state.load += a.loadPerAction + 4;
+      }
+    } else if(action === 'compressed'){
+      const gain = c.certGain.comp;
+      transitLine.textContent = 'Compressed telemetry sent: ' + fmtLatency(d.oneWay*2*c.rtMultiplier) + ' round trip.';
+      if(gain > 0){
+        state.certainty += gain;
+        state.load += a.loadPerAction + 2;
+        log('Compressed telemetry read back. Certainty +' + gain + '.', 'good');
+      } else {
+        log('Compressed telemetry sent, but this channel is not built for it. No certainty gained.', 'bad');
+        state.load += a.loadPerAction + 2;
+      }
+    } else if(action === 'coded'){
+      const gain = c.certGain.cod;
+      transitLine.textContent = 'Coded burst exchanged in ' + fmtLatency(d.oneWay*2*c.rtMultiplier) + '.';
+      if(gain > 0){
+        state.certainty += gain;
+        state.load += a.loadPerAction;
+        log('Coded protocol step matched against decision tree. Certainty +' + gain + '.', 'good');
+      } else {
+        log('Coded burst sent, but the richer channel selected carries little structured decision data here.', 'bad');
+        state.load += a.loadPerAction;
+      }
+    } else if(action === 'treat'){
+      const cost = SUPPLIES[state.sup].treatCost;
+      if(state.supplies < cost){
+        log('Treatment attempted but supplies are insufficient.', 'bad');
+      } else {
+        state.supplies -= cost;
+        const successChance = state.certainty + a.treatBonus;
+        const roll = successChance - (40 - (state.vitals/3));
+        if(roll >= 25){
+          state.vitals = Math.min(100, state.vitals + 22);
+          log('Treatment administered with high confidence. Vitals improve.', 'good');
+        } else if(roll >= 0){
+          state.vitals = Math.min(100, state.vitals + 8);
+          log('Treatment administered under uncertainty. Modest improvement, real risk remained.', 'warn');
+        } else {
+          state.vitals = Math.max(0, state.vitals - 14);
+          log('Treatment administered without enough certainty. Vitals worsen.', 'bad');
+        }
+      }
+      transitLine.textContent = 'No transmission this turn - action taken locally.';
+    } else if(action === 'wait'){
+      transitLine.textContent = 'Holding position. No message sent.';
+      log('Crew waits for a better channel or more certainty. Time is not free.', 'warn');
+    }
+
+    applyDecay();
+    state.certainty = Math.min(100, state.certainty);
+    state.load = Math.min(100, state.load);
+    refreshBars();
+    evaluateEnd();
+  }
+
+  function evaluateEnd(){
+    if(state.vitals <= 0){
+      finished = true;
+      setStatus('DEAD','DEAD');
+      log('Vitals reached zero. Patient did not survive.', 'bad');
+    } else if(state.turn >= 6){
+      finished = true;
+      if(state.vitals >= 60){
+        setStatus('STABILIZED','STABILIZED');
+        log('Six turns elapsed. Patient stabilized in time.', 'good');
+      } else if(state.vitals >= 30){
+        setStatus('CRITICAL','CRITICAL');
+        log('Six turns elapsed. Patient survives but remains critical.', 'warn');
+      } else {
+        setStatus('CRITICAL','CRITICAL');
+        log('Six turns elapsed. Patient barely holding on.', 'bad');
+      }
+    } else if(state.vitals < 25){
+      setStatus('ALIVE','CRITICAL');
+    } else {
+      setStatus('ALIVE','ALIVE');
+    }
+    if(finished){
+      setActionsEnabled(false);
+      turnCounter.textContent = 'Turn 6 / 6 - completed';
+    }
+  }
+
+  function runScenario(name){
+    if(autoplaying) return;
+    const sc = SCENARIOS[name];
+    initState(sc.dist, sc.comms, sc.auto, sc.sup);
+    setActionsEnabled(false);
+    autoplaying = true;
+    let i = 0;
+    function step(){
+      if(i >= sc.script.length){
+        autoplaying = false;
+        return;
+      }
+      doAction(sc.script[i]);
+      i += 1;
+      setTimeout(step, 850);
+    }
+    setTimeout(step, 500);
+  }
+
+  scenarioBtns.forEach(btn => {
+    btn.addEventListener('click', () => runScenario(btn.dataset.scenario));
+  });
+
+  actBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      if(autoplaying) return;
+      doAction(btn.dataset.action);
+    });
+  });
+
+  [distSel, commsSel, autoSel, supSel].forEach(sel => {
+    sel.addEventListener('change', () => {
+      if(autoplaying) return;
+      initState(distSel.value, commsSel.value, autoSel.value, supSel.value);
+    });
+  });
+
+  initState('mars', 'coded', 'high', 'limited');
+})();
+</script>
+</body>
+</html>
