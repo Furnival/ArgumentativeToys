@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Orbital Microsegmentation Toy</title>
+  <link rel="preconnect" href="https://api.fontshare.com">
+  <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&f[]=cabinet-grotesk@500,700&display=swap" rel="stylesheet">
+  <style>
+    :root, [data-theme="light"] {
+      --text-xs: clamp(0.75rem, 0.7rem + 0.25vw, 0.875rem);
+      --text-sm: clamp(0.875rem, 0.8rem + 0.35vw, 1rem);
+      --text-base: clamp(1rem, 0.95rem + 0.25vw, 1.125rem);
+      --text-lg: clamp(1.125rem, 1rem + 0.75vw, 1.5rem);
+      --text-xl: clamp(1.5rem, 1.2rem + 1.25vw, 2.25rem);
+      --space-1: .25rem; --space-2: .5rem; --space-3: .75rem; --space-4: 1rem; --space-5: 1.25rem; --space-6: 1.5rem; --space-8: 2rem; --space-10: 2.5rem; --space-12: 3rem;
+      --color-bg:#f7f6f2; --color-surface:#f9f8f5; --color-surface-2:#fbfbf9; --color-surface-offset:#edeae5; --color-border:#d4d1ca; --color-divider:#dcd9d5;
+      --color-text:#28251d; --color-text-muted:#7a7974; --color-text-faint:#bab9b4; --color-text-inverse:#f9f8f4;
+      --color-primary:#01696f; --color-primary-hover:#0c4e54; --color-primary-highlight:#cedcd8;
+      --color-warning:#964219; --color-warning-highlight:#ddcfc6; --color-error:#a12c7b; --color-error-highlight:#e0ced7; --color-success:#437a22; --color-success-highlight:#d4dfcc; --color-blue:#006494; --color-blue-highlight:#c6d8e4;
+      --radius-sm:.375rem; --radius-md:.5rem; --radius-lg:.75rem; --radius-xl:1rem; --radius-full:9999px;
+      --shadow-sm:0 1px 2px oklch(0.2 0.01 80 / 0.06); --shadow-md:0 4px 12px oklch(0.2 0.01 80 / 0.08); --shadow-lg:0 12px 32px oklch(0.2 0.01 80 / 0.12);
+      --font-display:'Cabinet Grotesk', 'Inter', sans-serif; --font-body:'Satoshi', 'Inter', sans-serif;
+    }
+    [data-theme="dark"] {
+      --color-bg:#0a0a0a; --color-surface:#141414; --color-surface-2:#1b1b1b; --color-surface-offset:#222222; --color-border:#343434; --color-divider:#242424;
+      --color-text:#d9d9d7; --color-text-muted:#979792; --color-text-faint:#63635f; --color-text-inverse:#171614;
+      --color-primary:#4f98a3; --color-primary-hover:#227f8b; --color-primary-highlight:#223338;
+      --color-warning:#bb653b; --color-warning-highlight:#564942; --color-error:#d163a7; --color-error-highlight:#4c3d46; --color-success:#6daa45; --color-success-highlight:#31432d; --color-blue:#5591c7; --color-blue-highlight:#2f3f4f;
+      --shadow-sm:0 1px 2px rgba(0,0,0,.2); --shadow-md:0 4px 12px rgba(0,0,0,.3); --shadow-lg:0 12px 32px rgba(0,0,0,.4);
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;scroll-behavior:smooth}
+    body{min-height:100dvh;font-family:var(--font-body);font-size:var(--text-base);line-height:1.55;background:var(--color-bg);color:var(--color-text)}
+    button,input,select{font:inherit;color:inherit}
+    button{cursor:pointer;border:none}
+    canvas,svg{display:block;max-width:100%;height:auto}
+    .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+    :focus-visible{outline:2px solid var(--color-primary);outline-offset:3px;border-radius:var(--radius-sm)}
+    .page{max-width:1400px;margin:0 auto;padding:var(--space-4);display:grid;gap:var(--space-4)}
+    .topbar{display:flex;flex-wrap:wrap;justify-content:space-between;gap:var(--space-3);align-items:center;padding:var(--space-3) var(--space-4);background:var(--color-surface);border:1px solid color-mix(in oklab, var(--color-text) 12%, transparent);border-radius:var(--radius-xl);box-shadow:var(--shadow-sm)}
+    .brand{display:flex;gap:var(--space-3);align-items:center}
+    .logo{width:38px;height:38px;border-radius:12px;background:linear-gradient(145deg,var(--color-primary-highlight),transparent 70%), var(--color-surface-2);display:grid;place-items:center;color:var(--color-primary)}
+    .logo svg{width:24px;height:24px}
+    .title{font-family:var(--font-display);font-size:var(--text-xl);line-height:1}
+    .subtitle{font-size:var(--text-sm);color:var(--color-text-muted);max-width:62ch}
+    .toolbar{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center}
+    .chip-btn,.primary-btn,.ghost-btn,.scenario-btn{min-height:44px;padding:0 var(--space-4);border-radius:var(--radius-full);background:var(--color-surface-2);border:1px solid color-mix(in oklab, var(--color-text) 12%, transparent);transition:all .18s ease}
+    .primary-btn{background:var(--color-primary);color:var(--color-text-inverse);border-color:transparent;font-weight:700}
+    .primary-btn:hover,.scenario-btn:hover{background:var(--color-primary-hover);color:var(--color-text-inverse)}
+    .ghost-btn:hover,.chip-btn:hover{background:var(--color-surface-offset)}
+    .scenario-btn.active{background:var(--color-primary-highlight);color:var(--color-text);border-color:color-mix(in oklab, var(--color-primary) 45%, transparent)}
+    .layout{display:grid;grid-template-columns:minmax(320px,390px) minmax(0,1fr);gap:var(--space-4)}
+    .panel{background:var(--color-surface);border:1px solid color-mix(in oklab, var(--color-text) 12%, transparent);border-radius:var(--radius-xl);box-shadow:var(--shadow-sm)}
+    .controls{padding:var(--space-4);display:grid;gap:var(--space-4);align-content:start}.scenario-specific{display:none}.scenario-specific.active{display:grid}
+    .section-title{font-family:var(--font-display);font-size:var(--text-lg);margin-bottom:var(--space-2)}
+    .section-copy{font-size:var(--text-sm);color:var(--color-text-muted);max-width:44ch}
+    .control-group{display:grid;gap:var(--space-2)}
+    .control-group label{font-size:var(--text-sm);font-weight:700}
+    .control-group select{width:100%;min-height:44px;padding:0 var(--space-3);background:var(--color-surface-2);border:1px solid color-mix(in oklab, var(--color-text) 12%, transparent);border-radius:var(--radius-md)}
+    .hint{font-size:var(--text-xs);color:var(--color-text-muted)}
+    .metric-grid{display:grid;grid-template-columns:1fr;gap:var(--space-3)}
+    .metric{padding:var(--space-3);border-radius:var(--radius-lg);background:var(--color-surface-2);border:1px solid color-mix(in oklab, var(--color-text) 10%, transparent)}
+    .metric-label{font-size:var(--text-xs);color:var(--color-text-muted);text-transform:uppercase;letter-spacing:.08em}
+    .metric-value{font-size:var(--text-lg);font-weight:700;font-variant-numeric:tabular-nums lining-nums}
+    .metric-note{font-size:var(--text-xs);color:var(--color-text-muted)}
+    .verdict{padding:var(--space-4);border-radius:var(--radius-lg);background:linear-gradient(180deg,color-mix(in oklab,var(--color-primary) 8%, transparent),transparent),var(--color-surface-2);border:1px solid color-mix(in oklab,var(--color-primary) 20%, transparent)}
+    .verdict strong{display:block;font-size:var(--text-sm);margin-bottom:var(--space-2);text-transform:uppercase;letter-spacing:.08em;color:var(--color-primary)}
+    .canvas-wrap{display:grid;grid-template-rows:auto 1fr auto;min-height:720px;overflow:hidden}
+    .canvas-head{padding:var(--space-4);display:flex;justify-content:space-between;gap:var(--space-3);align-items:start;border-bottom:1px solid color-mix(in oklab,var(--color-text) 12%, transparent)}
+    .legend{display:flex;flex-wrap:wrap;gap:var(--space-2);font-size:var(--text-xs);color:var(--color-text-muted)}
+    .legend span{display:inline-flex;align-items:center;gap:.45rem;padding:.35rem .6rem;border-radius:var(--radius-full);background:var(--color-surface-2)}
+    .swatch{width:10px;height:10px;border-radius:999px}
+    .stage{position:relative;padding:var(--space-4)}
+    .stage svg{width:100%;height:100%;min-height:520px;background:radial-gradient(circle at 50% 50%, color-mix(in oklab, var(--color-blue) 14%, transparent), transparent 45%), linear-gradient(180deg, color-mix(in oklab,var(--color-surface-2) 85%, transparent), var(--color-bg));border-radius:var(--radius-lg);border:1px solid color-mix(in oklab,var(--color-text) 10%, transparent)}
+    .canvas-foot{padding:var(--space-3) var(--space-4);border-top:1px solid color-mix(in oklab,var(--color-text) 12%, transparent);display:flex;justify-content:space-between;gap:var(--space-3);flex-wrap:wrap;font-size:var(--text-sm);color:var(--color-text-muted)}
+    .pill{display:inline-flex;align-items:center;gap:.5rem;padding:.45rem .75rem;border-radius:var(--radius-full);background:var(--color-surface-2)}
+    .status-log{max-width:72ch}
+    .accent{color:var(--color-primary)}
+    .warning{color:var(--color-warning)}
+    .danger{color:var(--color-error)}
+    @media (max-width: 1024px){.layout{grid-template-columns:1fr}.canvas-wrap{min-height:auto}}
+    @media (prefers-reduced-motion: reduce){*{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">
+          <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-label="Orbital mesh logo">
+            <circle cx="24" cy="24" r="16"></circle>
+            <circle cx="24" cy="24" r="4" fill="currentColor" stroke="none"></circle>
+            <path d="M8 24h10M30 24h10M24 8v10M24 30v10"></path>
+          </svg>
+        </div>
+        <div>
+          <div class="title">Whose Mistake Reaches Orbit?</div>
+          <p class="subtitle">These satellites are generic on purpose. The hardware barely changes; the policy does. Pick the trust model, seed one familiar cloud mistake, and watch whether it stays local or becomes orbital weather.</p>
+        </div>
+      </div>
+      <div class="toolbar">
+        <button class="scenario-btn active" data-scenario="flat">One Big Happy Network</button>
+        <button class="scenario-btn" data-scenario="tenant">The Neighbor Reads Too Much</button>
+        <button class="scenario-btn" data-scenario="retask">The Satellite That Forgot to Forget</button>
+        <button class="ghost-btn" data-theme-toggle aria-label="Switch theme">☾</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="panel controls">
+        <section>
+          <h2 class="section-title">Claim</h2>
+          <p class="section-copy">The claim: in a fungible constellation, the real architecture is not the orbit or the bus. It is the permission model. Get that wrong and a local error acquires orbital range.</p>
+        </section>
+
+        <section class="control-group">
+          <label for="ovnMode">How many skies?</label>
+          <select id="ovnMode">
+            <option value="flat">One big shared sky</option>
+            <option value="mission">Separate skies with polite bridges</option>
+            <option value="strict">Hard borders, no casual peering</option>
+          </select>
+          <p class="hint">The first choice is philosophical: do all missions inhabit one friendly cloud, or do they need visas to cross a border?</p>
+        </section>
+
+        <section class="control-group">
+          <label for="sgMode">Who may touch what?</label>
+          <select id="sgMode">
+            <option value="permissive">Mostly yes, unless forbidden</option>
+            <option value="scoped">Scoped by mission and function</option>
+            <option value="least">Nothing by default; every right named</option>
+          </select>
+          <p class="hint">Think AWS security groups, but for TT&amp;C, payload, routing, and retasking authority.</p>
+        </section>
+
+        <section class="control-group">
+          <label for="retaskMode">What survives a mission change?</label>
+          <select id="retaskMode">
+            <option value="sticky">Old privileges come along for the ride</option>
+            <option value="graceful">Short grace, then a clean rebinding</option>
+            <option value="attested">Prove yourself again before rejoining</option>
+          </select>
+          <p class="hint">Hall thrusters move mass through space. The question here is whether old trust is allowed to travel with it.</p>
+        </section>
+
+        <section class="control-group">
+          <label for="faultMode">Which human error?</label>
+          <select id="faultMode">
+            <option value="ops">A stolen operator credential</option>
+            <option value="tenant">A tenant rule written too generously</option>
+            <option value="stale">A stale trust tag nobody revoked</option>
+          </select>
+          <p class="hint">The toy needs one clean sin. Press the button and that sin should either die in a corner or roam the fleet.</p>
+        </section>
+
+        <section class="control-group">
+          <div style="display:flex;gap:var(--space-2);flex-wrap:wrap">
+            <button id="seedBtn" class="primary-btn">Commit the mistake</button>
+            <button id="resetBtn" class="chip-btn">Begin again</button>
+          </div>
+        </section>
+
+        <section>
+          <h2 class="section-title">What the mistake buys you</h2>
+          <div class="metric-grid">
+            <article class="metric">
+              <div class="metric-label">Blast radius</div>
+              <div class="metric-value" id="metricBlast">0%</div>
+              <div class="metric-note">How far one bad decision can now travel.</div>
+            </article>
+            <article class="metric">
+              <div class="metric-label">Border crossings</div>
+              <div class="metric-value" id="metricLeaks">0</div>
+              <div class="metric-note">How many times the compromise escapes its assigned sky.</div>
+            </article>
+          </div>
+        </section>
+
+        <section class="verdict">
+          <strong>The line to leave with</strong>
+          <p id="verdictText">When every satellite is generic, the real machine is the permission map. If the map is flat, one stolen key becomes weather.</p>
+        </section>
+      </aside>
+
+      <section class="panel canvas-wrap" aria-labelledby="networkHeading">
+        <div class="canvas-head">
+          <div>
+            <h2 id="networkHeading" class="section-title">The fleet while the lie spreads</h2>
+            <p class="section-copy">The circles are intentionally interchangeable. Color comes from software-assigned OVNs, not from the bus. The upper ring relays; the lower ring does mission work; the squares are where the ground enters the story.</p>
+          </div>
+          <div class="legend" aria-label="Legend">
+            <span><i class="swatch" style="background:var(--color-blue)"></i>OVN A</span>
+            <span><i class="swatch" style="background:var(--color-success)"></i>OVN B</span>
+            <span><i class="swatch" style="background:var(--color-warning)"></i>Retasked</span>
+            <span><i class="swatch" style="background:var(--color-error)"></i>Compromised path</span>
+          </div>
+        </div>
+        <div class="stage">
+          <svg id="networkSvg" viewBox="0 0 980 620" role="img" aria-label="Orbital microsegmentation network diagram"></svg>
+        </div>
+        <div class="canvas-foot">
+          <div class="pill">Guided reading: <span class="accent" id="scenarioLabel">One Big Happy Network</span></div><div class="pill">Time base: <span class="accent" id="timeBase">45 s real / 6.0 s shown</span></div>
+          <div class="status-log" id="statusLog">The toy begins in its strongest claim: interchangeable satellites, software-drawn borders, and exactly one opportunity for a human being to be careless. Press Commit the mistake.</div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    (function(){
+      const themeBtn=document.querySelector('[data-theme-toggle]');
+      const root=document.documentElement;
+      let mode='dark';
+      root.setAttribute('data-theme',mode);
+      const setIcon=()=>themeBtn.textContent=mode==='dark'?'☾':'☀';
+      setIcon();
+      themeBtn.addEventListener('click',()=>{mode=mode==='dark'?'light':'dark';root.setAttribute('data-theme',mode);setIcon();});
+
+      const svg=document.getElementById('networkSvg');
+      const metricBlast=document.getElementById('metricBlast');
+      const metricLeaks=document.getElementById('metricLeaks');
+      const verdictText=document.getElementById('verdictText');
+      const statusLog=document.getElementById('statusLog');
+      const scenarioLabel=document.getElementById('scenarioLabel');
+      const seedBtn=document.getElementById('seedBtn');
+      const pauseBtn=document.getElementById('pauseBtn');
+      const resetBtn=document.getElementById('resetBtn');
+      const ovnMode=document.getElementById('ovnMode');
+      const sgMode=document.getElementById('sgMode');
+      const retaskMode=document.getElementById('retaskMode');
+      const faultMode=document.getElementById('faultMode');
+      const speedMode=document.getElementById('speedMode');
+      const timeShown=document.getElementById('timeShown');
+      const timeBase=document.getElementById('timeBase');
+      const scenarioButtons=[...document.querySelectorAll('.scenario-btn')];
+      const controlSections=[...document.querySelectorAll('.scenario-specific')];
+      const NS='http://www.w3.org/2000/svg';
+      const state={scenario:'flat',nodes:[],edges:[],timers:[],paused:false,ambientPhase:0,lastTs:0};
+
+      function clearTimers(){ state.timers.forEach(t=>clearTimeout(t)); state.timers=[]; }
+      function el(name,attrs={}){ const n=document.createElementNS(NS,name); Object.entries(attrs).forEach(([k,v])=>n.setAttribute(k,v)); return n; }
+      function palette(type){
+        const styles=getComputedStyle(document.documentElement);
+        return styles.getPropertyValue(type).trim();
+      }
+      function updateTimeLabel(){ const speed=parseFloat(speedMode.value||'1'); const shown=(6/speed).toFixed(1); timeShown.textContent=`${shown} s shown`; timeBase.textContent=`45 s real / ${shown} s shown`; }
+      function visibleControlsForScenario(name){
+        controlSections.forEach(section=>{ const modes=(section.dataset.controls||'').split(' '); section.classList.toggle('active', modes.includes(name)); });
+      }
+      function buildNodes(){
+        const nodes=[];
+        const upperCenter={x:490,y:200}, lowerCenter={x:490,y:420};
+        const upperR=230, lowerR=210;
+        for(let i=0;i<8;i++){
+          const a=(-Math.PI/2)+(i*(Math.PI*2/8));
+          nodes.push({id:'u'+i,x:upperCenter.x+Math.cos(a)*upperR,y:upperCenter.y+Math.sin(a)*upperR,type:'sat',shell:'relay',ovn:i<4?'A':'B',retasked:false,compromised:false});
+        }
+        for(let i=0;i<8;i++){
+          const a=(-Math.PI/2)+(i*(Math.PI*2/8));
+          nodes.push({id:'l'+i,x:lowerCenter.x+Math.cos(a)*lowerR,y:lowerCenter.y+Math.sin(a)*lowerR,type:'sat',shell:'mission',ovn:i%2===0?'A':'B',retasked:i===2||i===5,compromised:false});
+        }
+        nodes.push({id:'g1',x:120,y:310,type:'gateway',shell:'ground',ovn:'A',retasked:false,compromised:false,label:'Ground A'});
+        nodes.push({id:'g2',x:860,y:310,type:'gateway',shell:'ground',ovn:'B',retasked:false,compromised:false,label:'Ground B'});
+        return nodes;
+      }
+      function buildEdges(nodes){
+        const edges=[];
+        const nodeMap=Object.fromEntries(nodes.map(n=>[n.id,n]));
+        const upper=nodes.filter(n=>n.id.startsWith('u'));
+        const lower=nodes.filter(n=>n.id.startsWith('l'));
+        const link=(a,b,kind='mesh')=>edges.push({a,b,kind,active:false,leak:false});
+        upper.forEach((n,i)=>{ link(n.id,upper[(i+1)%upper.length].id,'relay'); if(i<4) link(n.id,lower[i].id,'down'); else link(n.id,lower[(i+2)%lower.length].id,'down'); });
+        lower.forEach((n,i)=>{ link(n.id,lower[(i+1)%lower.length].id,'mission'); if(i<4) link(n.id,'g1','ground'); else link(n.id,'g2','ground'); });
+        link('u1','u5','cross'); link('l1','l5','cross'); link('u3','g2','backdoor');
+        return edges.filter(e=>nodeMap[e.a]&&nodeMap[e.b]);
+      }
+      function draw(){
+        svg.innerHTML='';
+        state.nodes=buildNodes();
+        state.edges=buildEdges(state.nodes);
+        const defs=el('defs');
+        defs.innerHTML=`
+          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="${palette('--color-divider')}" stroke-opacity="0.18" stroke-width="1"/></pattern>`;
+        svg.appendChild(defs);
+        svg.appendChild(el('rect',{x:0,y:0,width:980,height:620,fill:'url(#grid)',rx:18}));
+        svg.appendChild(el('circle',{cx:490,cy:200,r:245,fill:'none',stroke:palette('--color-blue'), 'stroke-opacity':'0.18','stroke-width':'1.5','stroke-dasharray':'6 10'}));
+        svg.appendChild(el('circle',{cx:490,cy:420,r:225,fill:'none',stroke:palette('--color-success'), 'stroke-opacity':'0.18','stroke-width':'1.5','stroke-dasharray':'6 10'}));
+        svg.appendChild(el('line',{x1:490,y1:70,x2:490,y2:560,stroke:palette('--color-divider'),'stroke-opacity':'0.45','stroke-width':'1.4','stroke-dasharray':'10 12'}));
+        svg.appendChild(el('text',{x:504,y:116,fill:palette('--color-text-faint'),'font-size':'12','font-family':'var(--font-body)'})).textContent='OVN border';
+        svg.appendChild(el('text',{x:504,y:336,fill:palette('--color-text-faint'),'font-size':'12','font-family':'var(--font-body)'})).textContent='Crossing it is the point';
+        svg.appendChild(el('text',{x:490,y:35,'text-anchor':'middle',fill:palette('--color-text-muted'),'font-size':'14','font-family':'var(--font-body)'})).textContent='Relay shell';
+        svg.appendChild(el('text',{x:490,y:605,'text-anchor':'middle',fill:palette('--color-text-muted'),'font-size':'14','font-family':'var(--font-body)'})).textContent='Mission shell';
+
+        const edgeLayer=el('g',{'stroke-linecap':'round'});
+        state.edges.forEach((edge,i)=>{
+          const a=state.nodes.find(n=>n.id===edge.a), b=state.nodes.find(n=>n.id===edge.b);
+          const line=el('line',{x1:a.x,y1:a.y,x2:b.x,y2:b.y,stroke:palette('--color-text-faint'),'stroke-opacity':'0.35','stroke-width':edge.kind==='backdoor'?'2.8':'1.6'});
+          line.dataset.edge=i;
+          edgeLayer.appendChild(line);
+          edge.el=line;
+        });
+        svg.appendChild(edgeLayer);
+
+        const nodeLayer=el('g');
+        state.nodes.forEach((node,i)=>{
+          const g=el('g',{'data-id':node.id,transform:`translate(${node.x} ${node.y})`});
+          if(node.type==='gateway'){
+            const rect=el('rect',{x:-16,y:-16,width:32,height:32,rx:8,fill:node.ovn==='A'?palette('--color-blue-highlight'):palette('--color-success-highlight'),stroke:node.ovn==='A'?palette('--color-blue'):palette('--color-success'),'stroke-width':'2'});
+            g.appendChild(rect);
+          } else {
+            const outer=el('circle',{r:node.retasked?15:13,fill:node.retasked?palette('--color-warning-highlight'):(node.ovn==='A'?palette('--color-blue-highlight'):palette('--color-success-highlight')),stroke:node.retasked?palette('--color-warning'):(node.ovn==='A'?palette('--color-blue'):palette('--color-success')),'stroke-width':'2'});
+            g.appendChild(outer);
+          }
+          const inner=el(node.type==='gateway'?'rect':'circle', node.type==='gateway'?{x:-5,y:-5,width:10,height:10,rx:3,fill:palette('--color-text')}:{r:4,fill:palette('--color-text')});
+          g.appendChild(inner);
+          if(node.retasked){ g.appendChild(el('circle',{r:21,fill:'none',stroke:palette('--color-warning'),'stroke-width':'1.4','stroke-dasharray':'4 5','stroke-opacity':'0.75'})); }
+          const text=el('text',{x:0,y:node.type==='gateway'?31:30,'text-anchor':'middle',fill:palette('--color-text-muted'),'font-size':'11','font-family':'var(--font-body)'});
+          text.textContent=node.label || node.id.toUpperCase();
+          g.appendChild(text);
+          nodeLayer.appendChild(g); node.el=g;
+        });
+        svg.appendChild(nodeLayer);
+      }
+
+      function neighbors(id){
+        return state.edges.filter(e=>e.a===id||e.b===id).map(e=>e.a===id?e.b:e.a);
+      }
+      function nodeById(id){ return state.nodes.find(n=>n.id===id); }
+      function edgeBetween(a,b){ return state.edges.find(e=>(e.a===a&&e.b===b)||(e.a===b&&e.b===a)); }
+      function markNode(id, compromised=true, quarantine=false){
+        const node=nodeById(id); if(!node) return; node.compromised=compromised;
+        const base=node.el.querySelector(node.type==='gateway'?'rect':'circle');
+        if(base){
+          if(quarantine){
+            base.setAttribute('fill', palette('--color-success-highlight'));
+            base.setAttribute('stroke', palette('--color-success'));
+            base.setAttribute('filter','url(#glow)');
+          } else if(compromised){
+            base.setAttribute('fill', palette('--color-error-highlight'));
+            base.setAttribute('stroke', palette('--color-error'));
+            base.setAttribute('filter','url(#glow)');
+          }
+        }
+        if(quarantine){
+          const ring=el('circle',{r:24,fill:'none',stroke:palette('--color-success'),'stroke-width':'1.6','stroke-dasharray':'3 5','stroke-opacity':'0.85'});
+          node.el.appendChild(ring);
+        }
+      }
+      function markEdge(a,b,opts={}){
+        const edge=edgeBetween(a,b); if(!edge||!edge.el) return; edge.active=true; if(opts.leak) edge.leak=true;
+        edge.el.setAttribute('stroke', opts.quarantine?palette('--color-success'):opts.leak?palette('--color-warning'):palette('--color-error'));
+        edge.el.setAttribute('stroke-opacity','0.98'); edge.el.setAttribute('stroke-width', opts.leak?'4.5':opts.quarantine?'4':'3.8'); edge.el.setAttribute('filter','url(#glow)');
+        if(opts.leak){ edge.el.setAttribute('stroke-dasharray','10 8'); }
+        if(opts.quarantine){ edge.el.setAttribute('stroke-dasharray','4 8'); }
+      }
+      function resetMetrics(){ metricBlast.textContent='0%'; metricLeaks.textContent='0'; }
+      function applyMetrics(comp, blast, leaks, mission){ metricBlast.textContent=`${blast}%`; metricLeaks.textContent=String(leaks); }
+      function setScenario(name){
+        state.scenario=name;
+        const labels={flat:'One Big Happy Network',tenant:'The Neighbor Reads Too Much',retask:'The Satellite That Forgot to Forget'};
+        scenarioLabel.textContent=labels[name];
+        scenarioButtons.forEach(b=>b.classList.toggle('active', b.dataset.scenario===name));
+        visibleControlsForScenario(name);
+        if(name==='flat'){
+          ovnMode.value='flat'; sgMode.value='permissive'; retaskMode.value='sticky'; faultMode.value='ops';
+          verdictText.textContent='When every satellite is generic, the real machine is the permission map. If the map is flat, one stolen key becomes weather.';
+          statusLog.textContent='One Big Happy Network: everything is convenient, everyone is friendly, and one stolen operator credential is about to discover what friendship means in a flat sky.';
+        } else if(name==='tenant'){
+          ovnMode.value='mission'; sgMode.value='scoped'; retaskMode.value='graceful'; faultMode.value='tenant';
+          verdictText.textContent='Shared hardware is survivable. Shared trust is not. A tenant rule that wanders too far stops being configuration and becomes architecture.';
+          statusLog.textContent='The Neighbor Reads Too Much: a payload tenant gets a rule that was meant to be helpful. Helpful rules are how shared systems learn regret.';
+        } else {
+          ovnMode.value='strict'; sgMode.value='least'; retaskMode.value='sticky'; faultMode.value='stale';
+          verdictText.textContent='Mobility is not the danger. Memory is. A retasked satellite that keeps old trust is just configuration drift with propulsion.';
+          statusLog.textContent='The Satellite That Forgot to Forget: the spacecraft has moved on. Its permissions have not. Now the hole in the policy can maneuver.';
+        }
+        resetSimulation(false);
+      }
+
+      function resetSimulation(clearStatus=true){
+        clearTimers(); draw(); resetMetrics(); state.paused=false; pauseBtn.textContent='Pause';
+        if(clearStatus){ statusLog.textContent='The toy begins in its strongest claim: interchangeable satellites, software-drawn borders, and exactly one opportunity for a human being to be careless. Press Commit the mistake.'; }
+      }
+
+      function schedule(delay, fn){ const speed=parseFloat(speedMode.value||'1'); const t=setTimeout(()=>{ if(!state.paused) fn(); }, delay/ speed); state.timers.push(t); }
+      function runSimulation(){
+        clearTimers(); draw(); resetMetrics(); state.paused=false; pauseBtn.textContent='Pause'; updateTimeLabel();
+        const config={ovn:ovnMode.value, sg:sgMode.value, retask:retaskMode.value, fault:faultMode.value, scenario:state.scenario};
+        if(config.scenario==='flat') runFlat(config);
+        else if(config.scenario==='tenant') runTenant(config);
+        else runRetask(config);
+      }
+
+      function runFlat(config){
+        statusLog.textContent='The mistake enters through Ground A: one stolen credential, accepted as routine authority. In a flat sky, command trust and routing trust are already on speaking terms.';
+        schedule(250,()=>{ markNode('g1'); applyMetrics(1,12,0,96); });
+        schedule(850,()=>{ ['l0','l1','u0'].forEach(id=>markNode(id)); [['g1','l0'],['g1','l1'],['l0','u0']].forEach(([a,b])=>markEdge(a,b)); applyMetrics(4,34,1,84); });
+        schedule(1550,()=>{ ['u1','u7','l7','u3'].forEach(id=>markNode(id)); [['u0','u1'],['u7','u0'],['l7','g2'],['u3','g2']].forEach(([a,b])=>markEdge(a,b,{leak:b==='g2'||a==='u3'})); const blast=config.ovn==='flat'&&config.sg==='permissive'?78:52; const leaks=config.ovn==='flat'?3:1; const mission=config.sg==='least'?80:67; applyMetrics(8,blast,leaks,mission); verdictText.textContent=config.sg==='least' ? 'Even a bad map can be made less deadly when every right is named. Broad topology is ugly; broad permission is fatal.' : 'The flat sky behaves like a badly governed cloud account: once one privileged principal falls, the network mistakes compromise for work.'; });
+        schedule(2450,()=>{ if(config.sg==='least'||config.ovn!=='flat'){ ['u3','l7'].forEach(id=>markNode(id,false,true)); [['u3','g2'],['l7','g2']].forEach(([a,b])=>markEdge(a,b,{quarantine:true})); statusLog.textContent='Containment works only when borders have teeth. The hardware never changed; only the seriousness of the lines between missions did.'; } else { statusLog.textContent='Now the lie has become infrastructure. Relay shell, mission shell, and the far gateway are all helping the same intruder in good faith.'; } });
+      }
+
+      function runTenant(config){
+        statusLog.textContent='The tenant asks for a little too much and receives it. A rule written for payload egress has quietly opened a path toward shared routing.';
+        schedule(250,()=>{ markNode('l5'); applyMetrics(1,8,1,98); });
+        schedule(850,()=>{ ['u5','g2'].forEach(id=>markNode(id)); [['l5','u5'],['l5','g2']].forEach(([a,b])=>markEdge(a,b,{leak:true})); applyMetrics(3,24,2,90); });
+        schedule(1550,()=>{ const spread=config.sg==='permissive'?['u4','u6','l4','l6']:config.sg==='scoped'?['u4','l4']:['u4']; spread.forEach(id=>markNode(id)); spread.forEach(id=>markEdge('u5',id,id.startsWith('l')?{leak:true}:{})); const blast=config.sg==='permissive'?61:config.sg==='scoped'?33:19; const leaks=config.sg==='least'?1:4; const mission=config.sg==='least'?92:config.sg==='permissive'?72:83; applyMetrics(3+spread.length,blast,leaks,mission); verdictText.textContent=config.sg==='least' ? 'Least privilege keeps the tenant in its lane. Shared hardware does not require shared authority.' : 'A broad tenant rule in a generic fleet is the orbital cousin of an over-open security group: banal at first, then ruinously lateral.'; });
+        schedule(2450,()=>{ if(config.sg==='least'){ ['u4'].forEach(id=>markNode(id,false,true)); [['u5','u4']].forEach(([a,b])=>markEdge(a,b,{quarantine:true})); } statusLog.textContent=config.sg==='least' ? 'The payload may speak outward, but it cannot wander sideways into control. That is what shared responsibility looks like when someone actually means it.' : 'Once routing and payload inhabit the same trust neighborhood, tenant error stops being local and becomes infrastructure error.'; });
+      }
+
+      function runRetask(config){
+        statusLog.textContent='The satellite has changed mission, but not identity in the operator’s imagination. Old tags survive the burn and drift into the new shell.';
+        schedule(250,()=>{ markNode('l2'); applyMetrics(1,9,1,97); });
+        schedule(850,()=>{ [['l2','l1'],['l2','u2']].forEach(([a,b])=>markEdge(a,b,{leak:true})); ['u2','l1'].forEach(id=>markNode(id)); applyMetrics(3,22,2,91); });
+        schedule(1550,()=>{ const extra=config.retask==='sticky'?['u1','u3','g1']:config.retask==='graceful'?['u1']:[]; extra.forEach(id=>markNode(id)); extra.forEach(id=>markEdge('u2',id,{leak:true})); const blast=config.retask==='sticky'?48:config.retask==='graceful'?26:13; const leaks=config.retask==='attested'?0:config.retask==='graceful'?1:4; const mission=config.retask==='attested'?94:config.retask==='graceful'?88:76; applyMetrics(3+extra.length,blast,leaks,mission); verdictText.textContent=config.retask==='attested' ? 'A mission change should feel like border control, not a friendly wave-through. Mobility deserves quarantine before trust.' : 'Retasking without identity reset is configuration drift with orbital mechanics underneath it.'; });
+        schedule(2450,()=>{ if(config.retask==='attested'){ markNode('l2',false,true); [['l2','u2']].forEach(([a,b])=>markEdge(a,b,{quarantine:true})); } statusLog.textContent=config.retask==='attested' ? 'Only after proving who it is now does the satellite rejoin the mesh. Thruster agility no longer drags stale privilege behind it.' : 'Hall-thruster agility is operational gold and segmentation poison unless mission change destroys old trust as aggressively as it creates new trust.'; });
+      }
+
+      function animateAmbient(ts){
+        if(!state.lastTs) state.lastTs=ts;
+        const dt=Math.min(40, ts-state.lastTs);
+        state.lastTs=ts;
+        if(!state.paused){ state.ambientPhase += dt*0.0012*(parseFloat(speedMode.value||'1')); }
+        state.nodes.forEach((node, i)=>{
+          if(!node.el || node.type==='gateway') return;
+          const wobbleX = Math.sin(state.ambientPhase + i*0.7) * 2.4;
+          const wobbleY = Math.cos(state.ambientPhase*1.2 + i*0.5) * 1.8;
+          node.el.setAttribute('transform', `translate(${node.x + wobbleX} ${node.y + wobbleY})`);
+        });
+        requestAnimationFrame(animateAmbient);
+      }
+      scenarioButtons.forEach(btn=>btn.addEventListener('click',()=>setScenario(btn.dataset.scenario)));
+      seedBtn.addEventListener('click',runSimulation);
+      pauseBtn.addEventListener('click',()=>{ state.paused=!state.paused; pauseBtn.textContent=state.paused?'Resume':'Pause'; });
+      resetBtn.addEventListener('click',()=>resetSimulation(true));
+      speedMode.addEventListener('change', updateTimeLabel);
+      updateTimeLabel();
+      setScenario('flat');
+      draw();
+      requestAnimationFrame(animateAmbient);
+    })();
+  </script>
+</body>
+</html>
