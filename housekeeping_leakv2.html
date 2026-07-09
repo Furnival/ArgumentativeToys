@@ -1,0 +1,1065 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Housekeeping Leak</title>
+<!--
+  Housekeeping Leak — a toy about satellite side-channel intelligence.
+
+  Constants:
+    - LEO altitude 550 km (Starlink-class reference)
+    - Earth radius 6371 km (mean)
+    - Attitude precision range 1e-5° to 1e-1° spans research-grade star trackers
+      (~3 arcsec, per Blue Canyon Technologies public specs) to coarse sun sensors
+      (~1°, per NASA CubeSat101).
+    - Base intelligence values anchored to public satellite imagery pricing:
+      Maxar/Planet commercial imagery ~$25/km² at 30 cm resolution, with
+      SIGINT-over-military and imagery-over-sensitive-geography commanding
+      10-100x premiums per open-source valuation discussion.
+    - POI coordinates from OpenStreetMap.
+
+  The math: footprint_radius = slant_range × tan(σ);  earned = base_value / max(1, POIs_in_ellipse).
+
+  No dependencies. No fonts from CDN. No telemetry.
+-->
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --fg: #e0e0e0;
+    --dim: #888;
+    --dimmer: #555;
+    --line: #2a2a2a;
+    --track: #4a4a4a;
+    --cool: #4a9eff;
+    --hot: #ff6b35;
+    --sat: #f5d76e;
+    --reticle: #ffffff;
+    --ui-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --ui-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--fg);
+    font-family: var(--ui-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  body { padding: 16px 16px 40px; max-width: 720px; margin: 0 auto; }
+  header { margin: 8px 0 12px; }
+  h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+  .sub { margin-top: 2px; font-size: 12px; color: var(--dim); }
+  .stage { position: relative; width: 100%; aspect-ratio: 375 / 392; background: #050505; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; }
+  .transport { display: flex; align-items: center; justify-content: space-between; padding: 12px 4px; gap: 12px; }
+  .transport button, .transport .speed {
+    font-family: var(--ui-sans); font-size: 14px;
+    background: transparent; color: var(--fg);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 10px 14px; min-height: 44px; min-width: 88px;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .transport button:active { background: #151515; }
+  .transport .speed { font-family: var(--ui-mono); text-align: center; }
+  .slider-block { padding: 4px 4px 12px; }
+  .slider-label { font-size: 13px; color: #aaa; margin-bottom: 6px; }
+  input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 32px; background: transparent; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track {
+    height: 3px; background: var(--track); border-radius: 2px;
+  }
+  input[type=range]::-moz-range-track {
+    height: 3px; background: var(--track); border-radius: 2px;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--sat); border: none; margin-top: -10px;
+    box-shadow: 0 0 0 2px #0a0a0a;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--sat); border: none;
+  }
+  .slider-ticks { display: flex; justify-content: space-between; font-family: var(--ui-mono); font-size: 10px; color: var(--dimmer); margin-top: 4px; padding: 0 4px; }
+  .slider-ticks span.on { color: var(--sat); }
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0 8px; }
+  .presets button {
+    flex: 1 1 calc(33.333% - 6px); min-height: 36px;
+    background: transparent; color: var(--fg);
+    border: 1px solid var(--line); border-radius: 18px;
+    font-family: var(--ui-sans); font-size: 12px;
+    padding: 6px 4px;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+    white-space: nowrap;
+  }
+  .presets button.on { background: #1a1a1a; border-color: var(--sat); color: var(--sat); }
+  .presets button:active { background: #151515; }
+  .scroll-hint { text-align: center; font-size: 11px; color: var(--dimmer); padding: 8px 0 20px; }
+  .verdict { font-size: 16px; line-height: 1.55; color: #d0d0d0; font-style: italic; padding: 20px 4px 12px; border-top: 1px solid var(--line); margin-top: 8px; }
+  .verdict .stake { font-style: normal; color: var(--sat); font-family: var(--ui-mono); }
+  .essay { font-size: 14px; line-height: 1.65; color: #999; padding: 8px 4px 20px; }
+  .essay p { margin: 0 0 12px; }
+  .essay .num { font-family: var(--ui-mono); color: #bbb; }
+  .source { font-size: 12px; color: var(--cool); text-decoration: none; }
+  .source:hover { text-decoration: underline; }
+
+  /* Assumptions drawer.  Native <details> so it works with keyboard and
+     respects reduced-motion.  Collapsed by default so the toy stays the
+     argument and the receipts are one tap away. */
+  .drawer { border-top: 1px solid var(--line); margin-top: 8px; padding: 8px 4px 4px; }
+  .drawer > summary {
+    cursor: pointer; list-style: none;
+    font-size: 13px; color: var(--dim); padding: 8px 0;
+    display: flex; align-items: center; gap: 8px;
+    user-select: none;
+  }
+  .drawer > summary::-webkit-details-marker { display: none; }
+  .drawer > summary::before {
+    content: '\25B6'; font-size: 9px; color: var(--dimmer);
+    display: inline-block; transition: transform 0.15s ease;
+  }
+  .drawer[open] > summary::before { transform: rotate(90deg); }
+  .drawer > summary:hover { color: var(--fg); }
+  .drawer-body { font-size: 13px; line-height: 1.6; color: #a8a8a8; padding: 4px 4px 24px; }
+  .drawer-body h3 { font-size: 13px; color: var(--fg); font-weight: 600; margin: 16px 0 6px; letter-spacing: 0.02em; }
+  .drawer-body h3:first-child { margin-top: 4px; }
+  .drawer-body p { margin: 0 0 10px; }
+  .drawer-body ul { margin: 0 0 12px; padding-left: 18px; }
+  .drawer-body li { margin: 0 0 4px; }
+  .drawer-body code { font-family: var(--ui-mono); font-size: 12px; color: #c8c8c8; background: #181818; padding: 1px 5px; border-radius: 3px; }
+  .drawer-body .formula { font-family: var(--ui-mono); font-size: 12px; color: #d0d0d0; background: #141414; padding: 8px 10px; border-radius: 4px; border-left: 2px solid var(--track); margin: 6px 0 12px; overflow-x: auto; }
+  .drawer-body table { width: 100%; border-collapse: collapse; margin: 4px 0 12px; font-size: 12px; }
+  .drawer-body th, .drawer-body td { text-align: left; padding: 5px 8px 5px 0; border-bottom: 1px solid #1a1a1a; vertical-align: top; }
+  .drawer-body th { color: var(--fg); font-weight: 600; }
+  .drawer-body td.num { font-family: var(--ui-mono); color: var(--sat); text-align: right; padding-right: 12px; white-space: nowrap; }
+  .drawer-body a { color: var(--cool); text-decoration: none; }
+  .drawer-body a:hover { text-decoration: underline; }
+  .drawer-body .caveat { color: #777; font-size: 12px; font-style: italic; padding: 8px 10px; border-left: 2px solid #333; margin: 8px 0; }
+  @media (min-width: 640px) {
+    .stage { aspect-ratio: 4/3; max-height: 480px; }
+    h1 { font-size: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Housekeeping Leak</h1>
+  <div class="sub">a multi-tenant satellite: one tenant spying on another through housekeeping, SIGINT within the terms of service!</div>
+</header>
+
+<div class="stage"><canvas id="c"></canvas></div>
+
+<div class="transport">
+  <button id="playBtn" aria-label="Play or pause">❚❚ Pause</button>
+  <button class="speed" id="speedBtn" aria-label="Speed">1×</button>
+  <button id="resetBtn" aria-label="Reset">↻ Reset</button>
+</div>
+
+<div class="slider-block">
+  <div class="slider-label">Attitude precision</div>
+  <input type="range" id="prec" min="-4" max="1" step="0.01" value="1">
+  <div class="slider-ticks">
+    <span data-t="-4">research</span>
+    <span data-t="-2">commercial</span>
+    <span data-t="0">coarse</span>
+    <span data-t="1">redacted</span>
+  </div>
+</div>
+
+<div class="presets">
+  <button id="pKal">Kaliningrad</button>
+  <button id="pKra">Kraków</button>
+  <button id="pDji" class="on">Djibouti</button>
+  <button id="pKer">Kerch</button>
+  <button id="pDgo">Diego Garcia</button>
+  <button id="pIdl">Idle</button>
+</div>
+
+<div class="scroll-hint">▼ scroll for verdict</div>
+
+<div class="verdict" id="verdict">
+  This pass might sell for <span class="stake" id="stakeFull">$16,700</span>.
+  Every decimal place of housekeeping precision is a security decision.
+</div>
+
+<div class="essay">
+  <p>A modern shared satellite bus needs to report its own health to every tenant: bus voltage, radiator temperatures, and — crucially — the attitude quaternion. A tenant that points its payload at Kaliningrad has just told every other tenant on board that it pointed at Kaliningrad, at <span class="num">4 Hz</span>, in double-precision floats.</p>
+  <p>Coarsen the reported attitude and the pointing footprint blurs. Coarsen it enough and the ellipse contains three countries — a fact of no commercial value. Somewhere between those extremes lies the operator's disclosure policy.</p>
+  <p><a class="source" href="#" onclick="return false">Source: OSM coordinates; Maxar/Planet public pricing; BCT star tracker specs. This is a toy, not a simulation — the world map is Equirectangular and the orbit is a great-circle approximation.</a></p>
+</div>
+
+<details class="drawer">
+  <summary>Assumptions &amp; math — how the very fictional dollar figures are computed</summary>
+  <div class="drawer-body">
+
+    <h3>Physical constants</h3>
+    <ul>
+      <li>Earth radius <code>R = 6,371 km</code> (mean, IUGG).</li>
+      <li>Orbit altitude <code>h = 550 km</code> — Starlink v1.5 nominal shell, chosen as the modal LEO for shared-bus commercial imagery and comms today (<a href="https://www.starlink.com/technology" target="_blank" rel="noopener">Starlink technology page</a>).</li>
+      <li>Attitude reporting rate <code>4 Hz</code> — typical bus telemetry cadence for pointing state on modern shared platforms.</li>
+    </ul>
+
+    <h3>Attitude precision — slider range</h3>
+    <ul>
+      <li><strong>research</strong> <code>σ = 10<sup>-4</sup>°</code> ≈ 0.36 arcsec — better than the <a href="https://www.bluecanyontech.com/components/nano-star-trackers/" target="_blank" rel="noopener">Blue Canyon Technologies Nano Star Tracker (~3 arcsec, 3σ)</a>, i.e. laboratory-grade.</li>
+      <li><strong>commercial</strong> <code>σ = 10<sup>-2</sup>°</code> ≈ 36 arcsec — representative of what modern smallsat star trackers actually achieve in flight.</li>
+      <li><strong>coarse</strong> <code>σ = 10<sup>0</sup>°</code> = 1° — the sun-sensor / magnetometer regime described in <a href="https://www.nasa.gov/wp-content/uploads/2017/03/nasa_csli_cubesat_101_508.pdf" target="_blank" rel="noopener">NASA's CubeSat 101 guide</a>.</li>
+      <li><strong>redacted</strong> <code>σ = 10<sup>1</sup>°</code> = 10° — a deliberately-degraded posture: what an operator might claim they publish to "protect" the customer. The toy exists to show this claim doesn't hold.</li>
+    </ul>
+
+    <h3>Geometry — footprint radius on the ground</h3>
+    <div class="formula">slant_range = √((R+h)² + R² − 2(R+h)·R·cos(d/R))</div>
+    <div class="formula">footprint_radius = slant_range × tan(σ)</div>
+    <p>Here <code>d</code> is the great-circle distance from the sub-satellite point to the target. Overhead (<code>d≈0</code>) the slant range is ~550 km; near the horizon of the pass it grows past 1,500 km, so the same σ paints a bigger ellipse — the ellipse visibly breathes across a 5-minute window.</p>
+    <p>The drawn ellipse is amplified when the true radius is sub-pixel (small radii are boosted logarithmically so slider changes stay legible). When amplification is active a "true X m · amplified" tag appears below the target.</p>
+
+    <h3>Intelligence pricing — where the dollars come from</h3>
+    <p>Two public anchors:</p>
+    <ul>
+      <li><strong>Commercial optical imagery.</strong> <a href="https://landinfo.com/wp-content/uploads/Imagery_LandInfo_202601-1.pdf" target="_blank" rel="noopener">LandInfo's published per-km² rate card (Jan 2026)</a> lists fresh 30 cm Maxar imagery at roughly <code>$20–$30 per km²</code> for a single AOI — the modern reference for a commercial optical pass.</li>
+      <li><strong>SIGINT / sensitive-geography premium.</strong> Open-source discussions of the commercial SIGINT market (e.g. <a href="https://spacenews.com/hawkeye-360-raises-58-million/" target="_blank" rel="noopener">HawkEye 360 disclosures</a>, <a href="https://breakingdefense.com/2023/08/nro-signs-first-commercial-rf-contracts-with-hawkeye-360-umbra-spire/" target="_blank" rel="noopener">NRO commercial RF contract awards</a>) imply a 10×–100× premium over pure optical for a well-characterised, hard-to-reach target set.</li>
+    </ul>
+    <p>The <strong>base value</strong> of each preset is the pass's worth <em>if the ellipse resolves exactly one named target</em>. Ambiguity divides that value linearly by the number of candidates the ellipse contains:</p>
+    <div class="formula">earned = base_value / max(1, POIs_in_ellipse)</div>
+
+    <h3>Base values per preset</h3>
+    <table>
+      <thead>
+        <tr><th>Preset</th><th>Base</th><th>Reasoning</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Kaliningrad</td>
+          <td class="num">$50,000</td>
+          <td>Baltic SIGINT on a single-power exclave: valuable but not multilateral. Roughly 20× the commercial-imagery equivalent for the same km².</td>
+        </tr>
+        <tr>
+          <td>Kraków</td>
+          <td class="num">$3,000</td>
+          <td>Optical imagery of a Central-European city with no unique military installation — priced near the raw Maxar rate, no premium.</td>
+        </tr>
+        <tr>
+          <td>Djibouti</td>
+          <td class="num">$100,000</td>
+          <td>Highest base in the set: US, French, Japanese, and Chinese bases visibly co-located within ~5 km. Multilateral SIGINT posture, at the ceiling of the 10×–100× premium.</td>
+        </tr>
+        <tr>
+          <td>Kerch</td>
+          <td class="num">$30,000</td>
+          <td>Bridge / port / ferry traffic monitoring in an active conflict zone. Between Kraków-tier optical and Kaliningrad-tier SIGINT.</td>
+        </tr>
+        <tr>
+          <td>Diego Garcia</td>
+          <td class="num">$75,000</td>
+          <td>Fleet-monitoring intelligence on a strategic pre-positioning anchorage. Below Djibouti (single power) but above Kaliningrad (isolated atoll magnifies signal because nothing else is nearby to confuse it).</td>
+        </tr>
+        <tr>
+          <td>Idle</td>
+          <td class="num">$0</td>
+          <td>The attitude channel only leaks when the payload asks it to. Non-collection passes leak nothing worth pricing.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Worked example — Djibouti pass across the slider</h3>
+    <p>Assume the satellite is at closest approach (<code>slant ≈ 550 km</code>) and pointed at the aim point <code>(11.567°N, 43.130°E)</code> — chosen to sit <em>between</em> the co-located bases so the game is honest. Distances computed with the great-circle formula against the 13 POIs in the Djibouti set.</p>
+    <table>
+      <thead>
+        <tr><th>σ</th><th>Footprint radius</th><th>Named POIs hit</th><th>Divisor</th><th>Earned</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>0.001° (research-plus)</td><td class="num">9.6 m</td><td>0</td><td class="num">max(1,0)=1</td><td class="num">$100,000</td></tr>
+        <tr><td>0.01° (commercial)</td><td class="num">96 m</td><td>0</td><td class="num">max(1,0)=1</td><td class="num">$100,000</td></tr>
+        <tr><td>0.1°</td><td class="num">960 m</td><td>0</td><td class="num">max(1,0)=1</td><td class="num">$100,000</td></tr>
+        <tr><td>1° (coarse)</td><td class="num">9.6 km</td><td>8</td><td class="num">8</td><td class="num">$12,500</td></tr>
+        <tr><td>10° (redacted)</td><td class="num">97 km</td><td>10</td><td class="num">10</td><td class="num">$10,000</td></tr>
+      </tbody>
+    </table>
+    <p>Two things to notice. First, the value cliff is between <code>0.1°</code> and <code>1°</code> — that is exactly where a typical smallsat's cheap fallback attitude sensor lives, and it is where the operator's disclosure policy actually matters. Second, pushing from coarse (1°) to "redacted" (10°) barely helps: the local POI density is already saturated, so the extra ambiguity is not paid for. The illusion of protection collapses quickly.</p>
+
+    <h3>What this toy is not</h3>
+    <div class="caveat">These are illustrative anchors, not procurement quotes. Real intelligence pricing is bilateral, classified, and non-linear. The value of housekeeping-leak intelligence is bounded above by the imagery / SIGINT prices cited here — no one pays more for a leaked pointing quaternion than for the equivalent primary collection — and the point of the toy is that the leak is priced at $0 today.</div>
+    <div class="caveat">The world map is Equirectangular; the orbit is a great-circle approximation with constant altitude. Sub-satellite ground speed is a two-endpoint interpolation, not a Kepler propagation. None of these simplifications change the argument, which depends only on σ × slant → footprint and on the density of named targets.</div>
+
+  </div>
+</details>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---------- constants ----------
+  const R_EARTH = 6371; // km
+  const H_SAT   = 550;  // km, LEO altitude
+  const DEG = Math.PI / 180;
+
+  // POI lists — real OSM coordinates (approximate, city-level).
+  // Each POI is a candidate 'named target' that, if it falls inside the ellipse,
+  // dilutes the intelligence value of the collection.
+  const POIS = {
+    kaliningrad: [
+      // Kaliningrad Oblast — dense list of named military and civil POIs,
+      // so that a mid-precision ellipse contains multiple candidates.
+      { name: 'Kaliningrad',      lat: 54.71, lon: 20.51 },
+      { name: 'Baltiysk (naval)', lat: 54.65, lon: 19.91 },
+      { name: 'Chkalovsk (AB)',   lat: 54.77, lon: 20.39 },
+      { name: 'Chernyakhovsk',    lat: 54.63, lon: 21.82 },
+      { name: 'Sovetsk',          lat: 55.08, lon: 21.88 },
+      { name: 'Guryevsk',         lat: 54.77, lon: 20.60 },
+      { name: 'Svetlogorsk',      lat: 54.94, lon: 20.15 },
+      // Neighbours — come into play at coarser precision.
+      { name: 'Gdańsk',           lat: 54.35, lon: 18.65 },
+      { name: 'Klaipėda',         lat: 55.71, lon: 21.13 },
+      { name: 'Kaunas',           lat: 54.90, lon: 23.90 },
+      { name: 'Vilnius',          lat: 54.69, lon: 25.28 },
+      { name: 'Minsk',            lat: 53.90, lon: 27.57 },
+      { name: 'Warsaw',           lat: 52.23, lon: 21.01 },
+      { name: 'Riga',             lat: 56.95, lon: 24.11 },
+      { name: 'Białystok',        lat: 53.13, lon: 23.16 },
+      { name: 'Olsztyn',          lat: 53.78, lon: 20.49 },
+    ],
+    krakow: [
+      { name: 'Kraków',           lat: 50.06, lon: 19.94 },
+      { name: 'Skawina',          lat: 49.97, lon: 19.83 },
+      { name: 'Wieliczka',        lat: 49.99, lon: 20.06 },
+      { name: 'Katowice',         lat: 50.26, lon: 19.02 },
+      { name: 'Tarnów',           lat: 50.01, lon: 20.99 },
+      { name: 'Kielce',           lat: 50.87, lon: 20.63 },
+      { name: 'Nowy Sącz',        lat: 49.62, lon: 20.72 },
+      { name: 'Ostrava',          lat: 49.82, lon: 18.26 },
+      { name: 'Košice',           lat: 48.72, lon: 21.26 },
+      { name: 'Lublin',           lat: 51.25, lon: 22.57 },
+      { name: 'Wrocław',          lat: 51.11, lon: 17.04 },
+      { name: 'Bratislava',       lat: 48.15, lon: 17.11 },
+      { name: 'Warsaw',           lat: 52.23, lon: 21.01 },
+      { name: 'Prague',           lat: 50.08, lon: 14.44 },
+    ],
+    // Djibouti: the densest concentration of foreign military bases in the
+    // world.  US, French, Chinese, Japanese, Italian bases sit within a few
+    // km of each other — sharp pointing is still ambiguous, and the reader
+    // can see why on the map.  Coordinates from Wikipedia and OSM.
+    djibouti: [
+      { name: 'Camp Lemonnier (US)',      lat: 11.544, lon: 43.157 },
+      { name: 'PLA Support Base (CN)',    lat: 11.587, lon: 43.061 },
+      { name: 'Port de Doraleh',          lat: 11.590, lon: 43.095 },
+      { name: 'BA 188 (FR)',              lat: 11.548, lon: 43.160 },
+      { name: 'JSDF Base (JP)',           lat: 11.547, lon: 43.169 },
+      { name: 'Djibouti–Ambouli airport', lat: 11.547, lon: 43.159 },
+      { name: 'Port of Djibouti',         lat: 11.605, lon: 43.139 },
+      { name: 'Djibouti City',            lat: 11.588, lon: 43.145 },
+      // Regional context POIs that come into play at coarser precision.
+      { name: 'Arta (garrison)',          lat: 11.522, lon: 42.847 },
+      { name: 'Obock',                    lat: 11.965, lon: 43.284 },
+      { name: 'Aden (YE)',                lat: 12.780, lon: 45.037 },
+      { name: 'Assab (ER)',               lat: 13.008, lon: 42.735 },
+      { name: 'Berbera (SO)',             lat: 10.436, lon: 45.017 },
+    ],
+    // Diego Garcia: a single joint US/UK base on a tiny atoll in the middle
+    // of the Indian Ocean, with no other named land targets for hundreds of
+    // km.  The ambiguity here is the OPPOSITE of Djibouti's: sharp pointing
+    // resolves the base cleanly, but at coarse precision the ellipse
+    // contains only ocean.  Fewer hits doesn't mean fewer buyers — the
+    // scarcity of this pass is what makes it expensive.  Coordinates from
+    // Wikipedia NSF Diego Garcia and OSM (Chagos Archipelago).
+    diego: [
+      { name: 'NSF Diego Garcia',     lat: -7.313, lon: 72.411 },
+      { name: 'Camp Thunder Cove',    lat: -7.291, lon: 72.386 },
+      { name: 'Diego Garcia runway',  lat: -7.313, lon: 72.412 },
+      { name: 'East Point plantation', lat: -7.240, lon: 72.470 },
+      { name: 'Barton Point',         lat: -7.234, lon: 72.454 },
+      // Regional context — nothing but uninhabited coral atolls for hundreds
+      // of km, which is the entire strategic point of Diego Garcia.
+      { name: 'Salomon Islands',      lat: -5.335, lon: 72.250 },
+      { name: 'Peros Banhos',         lat: -5.400, lon: 71.833 },
+      { name: 'Egmont Islands',       lat: -6.667, lon: 71.367 },
+    ],
+    // Kerch Strait: bridge, port, naval anchorage, ferries — a narrow
+    // waterway with dual-use targets.  A pointing that resolves the bridge
+    // vs the naval port is real intelligence; blurring both together is not.
+    kerch: [
+      { name: 'Crimean Bridge (road)',  lat: 45.309, lon: 36.506 },
+      { name: 'Crimean Bridge (rail)',  lat: 45.303, lon: 36.507 },
+      { name: 'Kerch (city)',           lat: 45.360, lon: 36.470 },
+      { name: 'Kerch commercial port',  lat: 45.353, lon: 36.475 },
+      { name: 'Kerch ferry terminal',   lat: 45.325, lon: 36.638 },
+      { name: 'Chushka Spit terminal',  lat: 45.343, lon: 36.628 },
+      { name: 'Taman Peninsula',        lat: 45.211, lon: 36.723 },
+      { name: 'Kamysh-Burun bay',       lat: 45.263, lon: 36.480 },
+      // Regional context.
+      { name: 'Anapa (RU)',             lat: 44.894, lon: 37.316 },
+      { name: 'Feodosia (naval)',       lat: 45.032, lon: 35.383 },
+      { name: 'Novorossiysk',           lat: 44.723, lon: 37.769 },
+      { name: 'Sevastopol',             lat: 44.616, lon: 33.525 },
+    ],
+    idle: []
+  };
+
+  // Presets: each defines a 5-min window, ground track segment, and target.
+  // Ground track is a great-circle segment defined by two endpoints on Earth.
+  // Activation is a subwindow within the 5 minutes when the payload is pointed.
+  const PRESETS = {
+    kaliningrad: {
+      name: 'Kaliningrad',
+      title: 'SIGINT collection · Baltic pass',
+      // Ground track designed so the sub-satellite point sweeps past the
+      // target with a large slant-range excursion: distant at start, close
+      // to overhead near t=170s, distant again at end.  This makes the
+      // ellipse visibly breathe as the pass progresses.
+      track: { lat0: 40, lon0: 8, lat1: 68, lon1: 34 }, // ascending NE
+      target: { lat: 54.71, lon: 20.45 },
+      activation: { t0: 20, t1: 290 }, // near-full window: pass is the argument
+      baseValue: 50000, // USD
+      poiSet: 'kaliningrad',
+      viewCenter: { lat: 54, lon: 22 },
+      viewSpan: { latSpan: 22, lonSpan: 30 } // degrees visible on canvas
+    },
+    krakow: {
+      name: 'Kraków',
+      title: 'Optical imaging · Central Europe pass',
+      track: { lat0: 65, lon0: 32, lat1: 38, lon1: 8 }, // descending SW
+      target: { lat: 50.06, lon: 19.94 },
+      activation: { t0: 20, t1: 290 },
+      baseValue: 3000,
+      poiSet: 'krakow',
+      viewCenter: { lat: 50, lon: 19 },
+      viewSpan: { latSpan: 22, lonSpan: 30 }
+    },
+    djibouti: {
+      name: 'Djibouti',
+      title: 'SIGINT collection · Horn of Africa pass',
+      // Track approaches from SW (Kenya) climbing NE toward Arabia, with
+      // closest approach directly over Djibouti city near t=170s.
+      track: { lat0: -2, lon0: 32, lat1: 24, lon1: 54 },
+      target: { lat: 11.567, lon: 43.130 }, // between Camp Lemonnier and PLA base
+      activation: { t0: 20, t1: 290 },
+      baseValue: 100000, // Base is higher than Kaliningrad: three great powers
+                        // observing each other in one frame is the most
+                        // valuable housekeeping-leak intelligence available.
+      poiSet: 'djibouti',
+      viewCenter: { lat: 11.7, lon: 43.15 },
+      viewSpan: { latSpan: 6, lonSpan: 8 } // tight view: bases are ~5 km apart
+    },
+    diego: {
+      name: 'Diego Garcia',
+      title: 'Fleet monitoring · Indian Ocean pass',
+      // Track sweeps from the southwest (below Madagascar) up past the
+      // atoll toward India.  Closest approach near the middle of the pass.
+      track: { lat0: -22, lon0: 60, lat1: 8, lon1: 82 },
+      target: { lat: -7.313, lon: 72.411 }, // NSF Diego Garcia
+      activation: { t0: 20, t1: 290 },
+      // Base value between Kaliningrad SIGINT and Djibouti great-power
+      // observation: fleet-monitoring intelligence on a strategic anchorage
+      // that pre-positions supplies for the entire Indian Ocean / Persian
+      // Gulf theater.  A resolved pass here shows what's currently berthed.
+      baseValue: 75000,
+      poiSet: 'diego',
+      viewCenter: { lat: -6, lon: 72 },
+      // Wider view than Djibouti because the isolation IS the story — the
+      // reader must see all the ocean around it.
+      viewSpan: { latSpan: 10, lonSpan: 14 }
+    },
+    kerch: {
+      name: 'Kerch',
+      title: 'Optical + SAR collection · Kerch Strait pass',
+      track: { lat0: 32, lon0: 28, lat1: 58, lon1: 44 },
+      target: { lat: 45.310, lon: 36.520 }, // between bridge and city
+      activation: { t0: 20, t1: 290 },
+      baseValue: 30000, // Bridge/port intelligence, priced above Kraków optical
+                       // but below Djibouti SIGINT-on-great-powers.
+      poiSet: 'kerch',
+      viewCenter: { lat: 45.3, lon: 36.5 },
+      viewSpan: { latSpan: 4, lonSpan: 6 } // tight view
+    },
+    idle: {
+      name: 'Idle',
+      title: 'No collection · mid-Pacific pass',
+      track: { lat0: 20, lon0: -160, lat1: 40, lon1: -130 },
+      target: null,
+      activation: null,
+      baseValue: 0,
+      poiSet: 'idle',
+      viewCenter: { lat: 30, lon: -145 },
+      viewSpan: { latSpan: 22, lonSpan: 30 }
+    }
+  };
+
+  const WINDOW_SECONDS = 300; // 5 real minutes
+  const REAL_MS_AT_1X  = 8000; // 8 s at 1× per config: '5 min real / 8 s shown'
+
+  // ---------- state ----------
+  let preset = PRESETS.djibouti;
+  // Start partway into activation so the argument is visible on load (config §1).
+  let simT = 120;          // 0..WINDOW_SECONDS
+  let playing = true;
+  let speedIx = 1;         // index into SPEEDS
+  const SPEEDS = [0.25, 1, 2, 4];
+  let sigmaDeg = Math.pow(10, 1); // attitude precision, degrees (redacted default)
+  let lastFrameMs = performance.now();
+  let satTrail = []; // recent satellite screen positions for the fading trail
+
+  // ---------- geometry ----------
+  // Great-circle interpolation between two lat/lon points (radians).
+  function slerp(lat0, lon0, lat1, lon1, f) {
+    const φ0 = lat0*DEG, λ0 = lon0*DEG, φ1 = lat1*DEG, λ1 = lon1*DEG;
+    const x0 = Math.cos(φ0)*Math.cos(λ0), y0 = Math.cos(φ0)*Math.sin(λ0), z0 = Math.sin(φ0);
+    const x1 = Math.cos(φ1)*Math.cos(λ1), y1 = Math.cos(φ1)*Math.sin(λ1), z1 = Math.sin(φ1);
+    const dot = Math.max(-1, Math.min(1, x0*x1 + y0*y1 + z0*z1));
+    const Ω = Math.acos(dot);
+    if (Ω < 1e-6) return { lat: lat0, lon: lon0 };
+    const s0 = Math.sin((1-f)*Ω) / Math.sin(Ω);
+    const s1 = Math.sin(f*Ω) / Math.sin(Ω);
+    const x = s0*x0 + s1*x1, y = s0*y0 + s1*y1, z = s0*z0 + s1*z1;
+    return { lat: Math.asin(z)/DEG, lon: Math.atan2(y, x)/DEG };
+  }
+
+  // Great-circle distance in km between two lat/lon points.
+  function gcDistKm(lat0, lon0, lat1, lon1) {
+    const φ0 = lat0*DEG, φ1 = lat1*DEG;
+    const dφ = (lat1-lat0)*DEG, dλ = (lon1-lon0)*DEG;
+    const a = Math.sin(dφ/2)**2 + Math.cos(φ0)*Math.cos(φ1)*Math.sin(dλ/2)**2;
+    return 2 * R_EARTH * Math.asin(Math.sqrt(a));
+  }
+
+  // Slant range from satellite (at altitude H_SAT above sub-sat point) to a
+  // ground point at great-circle distance d_km away.  Uses the flat-Earth
+  // approximation for footprint (justified: for σ ≤ 0.1°, the local tangent
+  // plane matches spherical geometry to within 1% out to 1000 km slant range).
+  function slantRangeKm(distKm) {
+    // straight-line distance from sat to ground point:
+    // sat at radius R+h, ground point at radius R, arc between = distKm.
+    const θ = distKm / R_EARTH; // central angle, radians
+    const R1 = R_EARTH + H_SAT, R2 = R_EARTH;
+    return Math.sqrt(R1*R1 + R2*R2 - 2*R1*R2*Math.cos(θ));
+  }
+
+  // Footprint radius (km) from attitude precision σ (degrees) and slant range.
+  function footprintRadiusKm(sigDeg, slantKm) {
+    // 1σ footprint = R × tan(σ).  For small σ this is R × σ_rad.
+    return slantKm * Math.tan(sigDeg * DEG);
+  }
+
+  // Count POIs within the uncertainty ellipse (approximated as a circle on the
+  // ground, radius = footprintRadiusKm, centered on the pointing target).
+  function poisInEllipse(poiList, centerLat, centerLon, radiusKm) {
+    const hits = [];
+    for (const p of poiList) {
+      if (gcDistKm(centerLat, centerLon, p.lat, p.lon) <= radiusKm) hits.push(p);
+    }
+    return hits;
+  }
+
+  // ---------- canvas ----------
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  let W = 0, H = 0, DPR = 1;
+
+  function resize() {
+    DPR = Math.max(1, window.devicePixelRatio || 1);
+    const rect = canvas.getBoundingClientRect();
+    W = rect.width; H = rect.height;
+    canvas.width  = Math.round(W * DPR);
+    canvas.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+
+  // Equirectangular projection: view centered on preset.viewCenter,
+  // spanning preset.viewSpan.  Maintains screen aspect by expanding lonSpan.
+  function project(lat, lon) {
+    const c = preset.viewCenter, s = preset.viewSpan;
+    const aspect = W / H;
+    // Adjust lonSpan to match canvas aspect given the latSpan.
+    // We use lonSpan as declared, but if aspect demands, we expand it.
+    const effLonSpan = Math.max(s.lonSpan, s.latSpan * aspect);
+    let dlon = lon - c.lon;
+    // wrap dlon to [-180, 180]
+    while (dlon > 180) dlon -= 360;
+    while (dlon < -180) dlon += 360;
+    const x = W/2 + (dlon / effLonSpan) * W;
+    const y = H/2 - ((lat - c.lat) / s.latSpan) * H;
+    return { x, y };
+  }
+
+  // km-to-pixels at the view center (approximate — Equirect distortion).
+  function kmToPx(km) {
+    const s = preset.viewSpan;
+    const aspect = W / H;
+    const effLonSpan = Math.max(s.lonSpan, s.latSpan * aspect);
+    // Use latitude scale (less distorted at moderate latitudes).
+    const kmPerDegLat = 111.0;
+    const pxPerDegLat = H / s.latSpan;
+    return (km / kmPerDegLat) * pxPerDegLat;
+  }
+
+  // The reader's spatial anchor is the POI labels, not decorative continent
+  // silhouettes.  A hand-drawn continent outline that is "approximately Europe"
+  // is exactly the kind of dishonesty config §7 warns against: a shape that
+  // looks calculated but is invented.  We use graticule + labeled cities.
+
+  function drawMap() {
+    // background
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(0, 0, W, H);
+
+    // graticule at 5° intervals (context: lets the eye read scale directly).
+    // At the Baltic view (latSpan 22), 5° lines give ~4 horizontal rules —
+    // enough for orientation, not enough to compete with the ellipse.
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+    ctx.lineWidth = 1;
+    const c = preset.viewCenter, s = preset.viewSpan;
+    ctx.beginPath();
+    const latMin = Math.ceil((c.lat - s.latSpan/2) / 5) * 5;
+    const latMax = Math.floor((c.lat + s.latSpan/2) / 5) * 5;
+    for (let lat = latMin; lat <= latMax; lat += 5) {
+      const p = project(lat, c.lon);
+      ctx.moveTo(0, p.y); ctx.lineTo(W, p.y);
+    }
+    const aspect = W / H;
+    const effLonSpan = Math.max(s.lonSpan, s.latSpan * aspect);
+    const lonMin = Math.ceil((c.lon - effLonSpan/2) / 5) * 5;
+    const lonMax = Math.floor((c.lon + effLonSpan/2) / 5) * 5;
+    for (let lon = lonMin; lon <= lonMax; lon += 5) {
+      const p = project(c.lat, lon);
+      ctx.moveTo(p.x, 0); ctx.lineTo(p.x, H);
+    }
+    ctx.stroke();
+
+    // Always-visible POI dots.  Labels come later, after the ellipse, so the
+    // hits inside the ellipse can be brightened for the reader.  All POIs
+    // are shown as dim dots so the reader can see the CANDIDATE FIELD before
+    // the ellipse arrives — which is the whole ambiguity mechanic: readers
+    // must be able to see "these are the possible things this beam could be
+    // looking at" independent of the ellipse.
+    const pois = POIS[preset.poiSet];
+    ctx.fillStyle = 'rgba(180,180,180,0.55)';
+    for (const p of pois) {
+      const q = project(p.lat, p.lon);
+      if (q.x < -10 || q.x > W+10 || q.y < -10 || q.y > H+10) continue;
+      ctx.beginPath(); ctx.arc(q.x, q.y, 2, 0, Math.PI*2); ctx.fill();
+    }
+  }
+
+  // Always-visible POI labels, drawn AFTER the ellipse (so highlighted hits
+  // are painted over the label field).  Uses simple vertical stacking with
+  // an anti-collision pass, and elides labels that would overflow the canvas.
+  function drawPOILabels(hitSet) {
+    const pois = POIS[preset.poiSet];
+    if (!pois.length) return;
+    ctx.font = '9px ui-monospace, Menlo, monospace';
+    ctx.textAlign = 'left';
+    // Build entries with screen coords, filter offscreen.
+    const entries = [];
+    for (const p of pois) {
+      const q = project(p.lat, p.lon);
+      if (q.x < 4 || q.x > W - 4 || q.y < 12 || q.y > H - 24) continue;
+      entries.push({ p, q, hit: hitSet.has(p) });
+    }
+    // Sort by y so we can stagger overlapping labels.
+    entries.sort((a, b) => a.q.y - b.q.y);
+    let lastY = -Infinity;
+    for (const e of entries) {
+      let ly = e.q.y + 3;
+      if (ly - lastY < 11) ly = lastY + 11;
+      lastY = ly;
+      // Dot: hit is bright orange, non-hit is dim grey.
+      ctx.fillStyle = e.hit ? 'rgba(255,107,53,1.0)' : 'rgba(140,140,140,0.55)';
+      ctx.beginPath(); ctx.arc(e.q.x, e.q.y, e.hit ? 3 : 1.8, 0, Math.PI*2); ctx.fill();
+      // Label: hits are bright warm, non-hits are muted grey.  The reader's
+      // eye is drawn to what's IN the ellipse (bright) vs the CANDIDATE
+      // FIELD (dim).  Bold on hits helps contrast on small screens.
+      if (e.hit) {
+        ctx.fillStyle = 'rgba(255,180,120,0.98)';
+        ctx.font = 'bold 9px ui-monospace, Menlo, monospace';
+      } else {
+        ctx.fillStyle = 'rgba(140,140,140,0.75)';
+        ctx.font = '9px ui-monospace, Menlo, monospace';
+      }
+      ctx.fillText(e.p.name, e.q.x + 6, ly);
+    }
+    // Reset font for other drawers.
+    ctx.font = '10px ui-monospace, Menlo, monospace';
+  }
+
+  function drawGroundTrack() {
+    const t = preset.track;
+    ctx.strokeStyle = '#3a3a3a';
+    ctx.setLineDash([2, 4]);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const N = 60;
+    for (let i = 0; i <= N; i++) {
+      const p = slerp(t.lat0, t.lon0, t.lat1, t.lon1, i/N);
+      const q = project(p.lat, p.lon);
+      if (i === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  function currentSatPos() {
+    const t = preset.track;
+    const f = simT / WINDOW_SECONDS;
+    return slerp(t.lat0, t.lon0, t.lat1, t.lon1, f);
+  }
+
+  function isActive() {
+    if (!preset.activation) return false;
+    return simT >= preset.activation.t0 && simT <= preset.activation.t1;
+  }
+
+  function drawSatellite() {
+    const p = currentSatPos();
+    const q = project(p.lat, p.lon);
+
+    // trail
+    satTrail.push({ x: q.x, y: q.y });
+    if (satTrail.length > 60) satTrail.shift();
+    for (let i = 0; i < satTrail.length; i++) {
+      const a = i / satTrail.length;
+      ctx.fillStyle = `rgba(245,215,110,${a * 0.35})`;
+      ctx.beginPath(); ctx.arc(satTrail[i].x, satTrail[i].y, 1.5 + a*0.5, 0, Math.PI*2); ctx.fill();
+    }
+
+    // satellite dot
+    ctx.fillStyle = '#f5d76e';
+    ctx.beginPath(); ctx.arc(q.x, q.y, 4, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = 'rgba(245,215,110,0.4)';
+    ctx.beginPath(); ctx.arc(q.x, q.y, 7, 0, Math.PI*2); ctx.stroke();
+  }
+
+  function drawTargetAndEllipse() {
+    if (!preset.target) return;
+    const t = preset.target;
+    const tp = project(t.lat, t.lon);
+
+    // target marker (always visible, dim if not active)
+    ctx.strokeStyle = isActive() ? '#4a9eff' : '#2a3a4a';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(tp.x, tp.y, 5, 0, Math.PI*2); ctx.stroke();
+
+    if (!isActive()) return;
+
+    // Uncertainty ellipse.  This is the whole toy — it must be visibly moving
+    // and visibly sensitive to the slider.  Two things drive its size:
+    //   1. σ (attitude precision, from the slider) — the argument.
+    //   2. slant range (satellite distance to target) — visible motion during
+    //      the pass.  A LEO satellite's slant range roughly doubles between
+    //      overhead (~550 km) and near-horizon (~1500 km at ~15° elevation),
+    //      so the ellipse noticeably grows as the sat moves off boresight.
+    const sat = currentSatPos();
+    const distKm = gcDistKm(sat.lat, sat.lon, t.lat, t.lon);
+    const slant = slantRangeKm(distKm);
+    const rKm = footprintRadiusKm(sigmaDeg, slant);
+    const rPx = kmToPx(rKm);
+
+    // Draw the pointing cone from satellite to target.  At map scale a
+    // commercial-grade ellipse is genuinely sub-pixel on the ground (~100 m
+    // at 550 km slant is 0.02 px).  A cone with a widening base is the honest
+    // way to make the geometry visible: as the satellite recedes, the same
+    // angular uncertainty projects a larger footprint.  The reader sees
+    // slant→cone→ellipse, which is exactly the physics.
+    const satPos = project(sat.lat, sat.lon);
+    // Perpendicular offset at the target for the cone base edges.
+    const dx = tp.x - satPos.x, dy = tp.y - satPos.y;
+    const L = Math.hypot(dx, dy) || 1;
+    const nx = -dy / L, ny = dx / L; // unit perpendicular
+
+    // Amplify small ellipses so they remain visibly responsive to slant and
+    // slider changes.  At map scale a commercial-grade ellipse is 0.02 px on
+    // the ground — physically correct but invisible.  Blend the true radius
+    // with a log-amplified radius, then take the max with the true value so
+    // the drawn radius is monotone in the true radius (never gets smaller
+    // when the true value grows).
+    const MIN_PX = 3;
+    // Amplified radius: log growth from MIN_PX at rPx=0 up to ~15 px at rPx=1
+    // (i.e. ~6 km true footprint), then falls behind the linear rPx above
+    // that.  Max ensures the drawn radius is always ≥ true.
+    const ampR = MIN_PX + Math.log10(1 + rPx * 12) * 6;
+    const drawR = Math.max(rPx, ampR);
+    // Only call out amplification when it's real (drawn radius > 1.5× true).
+    // Between those we let the ellipse just be the ellipse without noise.
+    const isAmp = drawR > rPx * 1.5 && rPx < 3;
+
+    // Cone: draw the two lines from satellite to target-plus-radius on each side.
+    ctx.strokeStyle = 'rgba(245,215,110,0.28)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 3]);
+    ctx.beginPath();
+    ctx.moveTo(satPos.x, satPos.y); ctx.lineTo(tp.x + nx*drawR, tp.y + ny*drawR);
+    ctx.moveTo(satPos.x, satPos.y); ctx.lineTo(tp.x - nx*drawR, tp.y - ny*drawR);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Uncertainty ellipse as a fuzzy radial-gradient tint.  A hard-edged
+    // circle implies a hard boundary that the physics doesn't have: attitude
+    // error is Gaussian, so the probability of the payload actually pointing
+    // at a given ground point falls off smoothly.  The gradient shows this:
+    // bright at the boresight, fading to transparent at the 1σ radius, then
+    // trailing off past 2σ.  This makes "uncertainty" a visual property, not
+    // just a label.  Fuzziness increases with the true radius so a big
+    // ellipse also looks less confident per unit area — an honest depiction
+    // of how information density falls.
+    const outerR = drawR * 1.6; // gradient extends to ~1.6σ
+    const grad = ctx.createRadialGradient(tp.x, tp.y, 0, tp.x, tp.y, outerR);
+    // Peak opacity falls as ellipse grows (larger = blurrier).
+    const areaFactor = Math.min(1, 30 / drawR);
+    const peakA = 0.55 * (0.4 + 0.6 * areaFactor);
+    grad.addColorStop(0.00, `rgba(255,107,53,${peakA.toFixed(3)})`);
+    grad.addColorStop(0.55, `rgba(255,107,53,${(peakA*0.45).toFixed(3)})`);
+    grad.addColorStop(1.00, 'rgba(255,107,53,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(tp.x, tp.y, outerR, 0, Math.PI*2); ctx.fill();
+    // Thin nominal-1σ boundary so the reader can still read where the
+    // 'official' extent is — dashed to signal it isn't a hard boundary.
+    ctx.strokeStyle = isAmp ? 'rgba(255,107,53,0.45)' : 'rgba(255,107,53,0.60)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.arc(tp.x, tp.y, drawR, 0, Math.PI*2); ctx.stroke();
+    ctx.setLineDash([]);
+
+    if (isAmp) {
+      ctx.fillStyle = '#666';
+      ctx.font = '9px ui-monospace, Menlo, monospace';
+      ctx.textAlign = 'left';
+      // Anchor label below the target to avoid colliding with POI labels above.
+      ctx.fillText(formatFootprint(rKm) + ' · amplified', tp.x + drawR + 4, tp.y + drawR + 8);
+    }
+
+    // reticle crosshair
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(tp.x - 10, tp.y); ctx.lineTo(tp.x + 10, tp.y);
+    ctx.moveTo(tp.x, tp.y - 10); ctx.lineTo(tp.x, tp.y + 10);
+    ctx.stroke();
+
+    // Hit count at the ellipse edge, top-right of the ellipse, for a quick
+    // read of ambiguity.  Labels themselves are drawn by drawPOILabels
+    // AFTER the ellipse so all candidates stay visible and hits get
+    // highlighted (see drawPOILabels).
+    const pois = POIS[preset.poiSet];
+    const hits = poisInEllipse(pois, t.lat, t.lon, rKm);
+    if (hits.length >= 1) {
+      const label = hits.length >= 2
+        ? (hits.length + ' possible targets')
+        : '1 target resolved';
+      ctx.fillStyle = 'rgba(255,107,53,0.9)';
+      ctx.font = '11px ui-monospace, Menlo, monospace';
+      // Flip to the left of the ellipse if the label would run off canvas.
+      const approxWidth = label.length * 6.6;
+      const rightX = tp.x + drawR + 4;
+      if (rightX + approxWidth > W - 4) {
+        ctx.textAlign = 'right';
+        ctx.fillText(label, tp.x - drawR - 4, tp.y - drawR - 4);
+      } else {
+        ctx.textAlign = 'left';
+        ctx.fillText(label, rightX, tp.y - drawR - 4);
+      }
+    }
+  }
+
+  // Compute the current set of POI hits (used to highlight labels).
+  function currentHitSet() {
+    if (!preset.target || !isActive()) return new Set();
+    const sat = currentSatPos();
+    const distKm = gcDistKm(sat.lat, sat.lon, preset.target.lat, preset.target.lon);
+    const slant = slantRangeKm(distKm);
+    const rKm = footprintRadiusKm(sigmaDeg, slant);
+    const hits = poisInEllipse(POIS[preset.poiSet], preset.target.lat, preset.target.lon, rKm);
+    return new Set(hits);
+  }
+
+  function drawCaptions() {
+    ctx.font = '10px ui-monospace, Menlo, monospace';
+    ctx.textAlign = 'left';
+
+    // top-left: time compression + slant (so the reader sees WHY the ellipse
+    // is breathing — it's not a random pulse, it's the geometry of the pass).
+    const sat = currentSatPos();
+    let slantStr = '—';
+    if (preset.target) {
+      const distKm = gcDistKm(sat.lat, sat.lon, preset.target.lat, preset.target.lon);
+      slantStr = Math.round(slantRangeKm(distKm)) + ' km';
+    }
+    ctx.fillStyle = '#666';
+    const timeStr = W < 480 ? '5min / 8s' : '5 min real / 8 s shown';
+    ctx.fillText(timeStr, 8, 14);
+    if (preset.target) {
+      ctx.fillStyle = '#556';
+      ctx.fillText('slant ' + slantStr, 8, 28);
+    }
+
+    // top-right: derived numbers (precision, footprint, earned)
+    let footStr = '—', earnStr = '$0';
+    if (preset.target && isActive()) {
+      const distKm = gcDistKm(sat.lat, sat.lon, preset.target.lat, preset.target.lon);
+      const slant = slantRangeKm(distKm);
+      const rKm = footprintRadiusKm(sigmaDeg, slant);
+      footStr = formatFootprint(rKm);
+      const hits = poisInEllipse(POIS[preset.poiSet], preset.target.lat, preset.target.lon, rKm);
+      const earned = preset.baseValue / Math.max(1, hits.length);
+      earnStr = formatMoneyShort(earned);
+    }
+    const sigStr = formatSigma(sigmaDeg);
+    const line = W < 480
+      ? `±${sigStr}°  ${footStr}  ${earnStr}`
+      : `±${sigStr}° · footprint ${footStr} · earned ${earnStr}`;
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#888';
+    ctx.fillText(line, W - 8, 14);
+
+    // bottom-left: preset title
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#666';
+    ctx.fillText(preset.title, 8, H - 20);
+
+    // bottom-right: projection note
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#444';
+    ctx.fillText('equirectangular · approx.', W - 8, H - 8);
+  }
+
+  function frame(nowMs) {
+    const dt = nowMs - lastFrameMs;
+    lastFrameMs = nowMs;
+    if (playing) {
+      const speed = SPEEDS[speedIx];
+      // WINDOW_SECONDS of sim maps to REAL_MS_AT_1X of wall time at 1×.
+      const simDelta = (dt / REAL_MS_AT_1X) * WINDOW_SECONDS * speed;
+      simT += simDelta;
+      if (simT >= WINDOW_SECONDS) {
+        simT = 0;
+        satTrail = [];
+      }
+    }
+    drawMap();
+    drawGroundTrack();
+    drawTargetAndEllipse();
+    drawPOILabels(currentHitSet());
+    drawSatellite();
+    drawCaptions();
+    updateVerdict();
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- number formatting ----------
+  function formatSigma(sigDeg) {
+    // 4 significant figures, decimal notation.
+    if (sigDeg >= 0.01) return sigDeg.toFixed(3);
+    if (sigDeg >= 0.001) return sigDeg.toFixed(4);
+    if (sigDeg >= 0.0001) return sigDeg.toFixed(5);
+    return sigDeg.toExponential(2);
+  }
+  function formatFootprint(km) {
+    if (km < 0.001) return (km * 1e6).toFixed(0) + ' mm';
+    if (km < 1) return (km * 1000).toFixed(0) + ' m';
+    if (km < 100) return km.toFixed(1) + ' km';
+    return km.toFixed(0) + ' km';
+  }
+  function formatMoneyShort(v) {
+    if (v <= 0) return '$0';
+    if (v >= 10000) return '$' + (v/1000).toFixed(1) + 'k';
+    if (v >= 1000) return '$' + (v/1000).toFixed(2) + 'k';
+    return '$' + Math.round(v).toLocaleString('en-US');
+  }
+  function formatMoneyFull(v) {
+    if (v <= 0) return '$0';
+    return '$' + Math.round(v).toLocaleString('en-US');
+  }
+
+  // ---------- verdict text ----------
+  const verdictEl = document.getElementById('verdict');
+  const stakeEl = document.getElementById('stakeFull');
+  function updateVerdict() {
+    if (!preset.target || !isActive()) {
+      if (preset.name === 'Idle') {
+        verdictEl.innerHTML = 'This pass might sell for <span class="stake">$0</span>. Sometimes housekeeping shows nothing because there is nothing — the attitude channel only leaks when the payload asks it to.';
+        return;
+      }
+      // Between activations (Kaliningrad/Kraków, before/after the collection):
+      verdictEl.innerHTML = 'Waiting for payload activation. When it fires, the attitude channel will name its target.';
+      return;
+    }
+    const sat = currentSatPos();
+    const distKm = gcDistKm(sat.lat, sat.lon, preset.target.lat, preset.target.lon);
+    const slant = slantRangeKm(distKm);
+    const rKm = footprintRadiusKm(sigmaDeg, slant);
+    const hits = poisInEllipse(POIS[preset.poiSet], preset.target.lat, preset.target.lon, rKm);
+    const earned = preset.baseValue / Math.max(1, hits.length);
+    const stake = formatMoneyFull(earned);
+    if (preset.name === 'Kraków') {
+      verdictEl.innerHTML = 'This pass might sell for <span class="stake">' + stake + '</span>. Optical, SIGINT, radar — pointing is pointing.';
+    } else {
+      verdictEl.innerHTML = 'This pass might sell for <span class="stake">' + stake + '</span>. Every decimal place of housekeeping precision is a security decision.';
+    }
+  }
+
+  // ---------- controls ----------
+  const playBtn = document.getElementById('playBtn');
+  const speedBtn = document.getElementById('speedBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const precSlider = document.getElementById('prec');
+  const pKal = document.getElementById('pKal');
+  const pKra = document.getElementById('pKra');
+  const pDji = document.getElementById('pDji');
+  const pKer = document.getElementById('pKer');
+  const pDgo = document.getElementById('pDgo');
+  const pIdl = document.getElementById('pIdl');
+  const ALL_PRESET_BTNS = [pKal, pKra, pDji, pKer, pDgo, pIdl];
+  const tickEls = document.querySelectorAll('.slider-ticks span');
+
+  playBtn.addEventListener('click', () => {
+    playing = !playing;
+    playBtn.textContent = playing ? '❚❚ Pause' : '▶ Play';
+  });
+  speedBtn.addEventListener('click', () => {
+    speedIx = (speedIx + 1) % SPEEDS.length;
+    speedBtn.textContent = SPEEDS[speedIx] + '×';
+  });
+  resetBtn.addEventListener('click', () => {
+    simT = 0; satTrail = [];
+  });
+  precSlider.addEventListener('input', () => {
+    sigmaDeg = Math.pow(10, parseFloat(precSlider.value));
+    updateTickHighlight();
+  });
+  function updateTickHighlight() {
+    const v = parseFloat(precSlider.value);
+    tickEls.forEach(el => {
+      const t = parseFloat(el.getAttribute('data-t'));
+      el.classList.toggle('on', Math.abs(t - v) < 0.5);
+    });
+  }
+  function selectPreset(key, btn) {
+    preset = PRESETS[key];
+    // Snap to mid-activation if the preset has one, so the argument is
+    // visible immediately without waiting through the pre-activation dead time.
+    if (preset.activation) {
+      simT = (preset.activation.t0 + preset.activation.t1) / 2;
+    } else {
+      simT = WINDOW_SECONDS / 2;
+    }
+    satTrail = [];
+    ALL_PRESET_BTNS.forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+  }
+  pKal.addEventListener('click', () => selectPreset('kaliningrad', pKal));
+  pKra.addEventListener('click', () => selectPreset('krakow', pKra));
+  pDji.addEventListener('click', () => selectPreset('djibouti', pDji));
+  pKer.addEventListener('click', () => selectPreset('kerch', pKer));
+  pDgo.addEventListener('click', () => selectPreset('diego', pDgo));
+  pIdl.addEventListener('click', () => selectPreset('idle', pIdl));
+
+  // ---------- init ----------
+  resize();
+  updateTickHighlight();
+  requestAnimationFrame((t) => { lastFrameMs = t; requestAnimationFrame(frame); });
+})();
+</script>
+
+</body>
+</html>
