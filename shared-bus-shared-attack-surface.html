@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shared Bus, Shared Attack Surface</title>
+  <style>
+    :root {
+      --bg: #0c1118;
+      --panel: #121924;
+      --panel-2: #0f1620;
+      --border: rgba(255,255,255,0.10);
+      --text: rgba(255,255,255,0.92);
+      --muted: rgba(255,255,255,0.68);
+      --faint: rgba(255,255,255,0.48);
+      --shadow: 0 12px 40px rgba(0,0,0,0.28);
+      --radius: 18px;
+      --radius-sm: 12px;
+      --maxw: 1140px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+    }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at top, rgba(80,120,180,0.12), transparent 36%),
+        linear-gradient(180deg, #0a0f15 0%, #0c1118 100%);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+    }
+
+    .toy-shell {
+      width: min(var(--maxw), calc(100% - 32px));
+      margin: 0 auto;
+      padding: 36px 0 56px;
+    }
+
+    .toy-header {
+      max-width: 78ch;
+      margin-bottom: 28px;
+    }
+
+    .toy-header h1 {
+      margin: 0 0 10px;
+      font-size: clamp(2.2rem, 5vw, 4rem);
+      line-height: 0.98;
+      letter-spacing: -0.04em;
+      max-width: 11ch;
+    }
+
+    .toy-header .subtitle {
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 0.98rem;
+      letter-spacing: 0.01em;
+    }
+
+    .toy-header .intro {
+      margin: 0 0 16px;
+      color: rgba(255,255,255,0.88);
+      max-width: 68ch;
+    }
+
+    .toy-header .claim {
+      margin: 0;
+      color: #dce9ff;
+      font-size: 1.04rem;
+    }
+
+    .toy-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.9fr);
+      gap: 20px;
+      align-items: start;
+    }
+
+    .panel {
+      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.012));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 22px 20px 20px;
+      backdrop-filter: blur(10px);
+    }
+
+    .panel-left {
+      border-top: 1px solid rgba(120,166,255,0.18);
+    }
+
+    .panel-right {
+      border-top: 1px solid rgba(213,93,113,0.18);
+    }
+
+    .panel h2 {
+      margin: 0 0 6px;
+      font-size: 1rem;
+      line-height: 1.2;
+      letter-spacing: 0.01em;
+    }
+
+    .panel-note,
+    .preset-description,
+    .toy-footer .honesty-note {
+      color: var(--muted);
+    }
+
+    .panel-note {
+      margin: 0 0 18px;
+      font-size: 0.94rem;
+    }
+
+    .trace-row {
+      display: grid;
+      grid-template-columns: 72px 1fr 72px;
+      align-items: center;
+      gap: 12px;
+      margin: 10px 0;
+    }
+
+    .trace-label,
+    .trace-state {
+      font-size: 0.9rem;
+      color: rgba(255,255,255,0.82);
+    }
+
+    .trace-state {
+      text-align: right;
+      color: rgba(255,255,255,0.64);
+    }
+
+    .trace-svg {
+      width: 100%;
+      height: 36px;
+      overflow: visible;
+      opacity: 0.95;
+    }
+
+    .trace-line {
+      fill: none;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      filter: drop-shadow(0 0 6px rgba(255,255,255,0.04));
+    }
+
+    .trace-band {
+      fill: rgba(103, 160, 255, 0.14);
+      stroke: none;
+    }
+
+    .trace-pointing { stroke: #78a6ff; }
+    .trace-power { stroke: #f0b35a; }
+    .trace-heat { stroke: #ff8b6b; }
+    .trace-timing { stroke: #4fd0c8; }
+
+    .controls {
+      margin-top: 18px;
+    }
+
+    .control-row {
+      --value: 50%;
+      --accent: #78a6ff;
+      margin: 14px 0 18px;
+    }
+
+    .control-row[data-accent="pointing"] { --accent: #78a6ff; }
+    .control-row[data-accent="power"] { --accent: #f0b35a; }
+    .control-row[data-accent="heat"] { --accent: #ff8b6b; }
+    .control-row[data-accent="timing"] { --accent: #4fd0c8; }
+
+    .control-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .control-head label {
+      font-size: 0.95rem;
+      color: rgba(255,255,255,0.9);
+    }
+
+    .control-head output {
+      min-width: 2.5rem;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      font-size: 0.9rem;
+      color: rgba(255,255,255,0.72);
+    }
+
+    .control-row input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 18px;
+      background: linear-gradient(
+        to right,
+        var(--accent) 0%,
+        var(--accent) var(--value),
+        rgba(255,255,255,0.10) var(--value),
+        rgba(255,255,255,0.10) 100%
+      );
+      border-radius: 999px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .control-row input[type="range"]::-webkit-slider-runnable-track {
+      height: 8px;
+      background: transparent;
+      border-radius: 999px;
+    }
+
+    .control-row input[type="range"]::-moz-range-track {
+      height: 8px;
+      background: rgba(255,255,255,0.10);
+      border-radius: 999px;
+    }
+
+    .control-row input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      margin-top: -5px;
+      border-radius: 50%;
+      border: 2px solid rgba(15,18,28,0.9);
+      background: var(--accent);
+      box-shadow: 0 0 0 3px rgba(255,255,255,0.08);
+      transition: transform 160ms ease, box-shadow 160ms ease;
+    }
+
+    .control-row input[type="range"]::-moz-range-thumb {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 2px solid rgba(15,18,28,0.9);
+      background: var(--accent);
+      box-shadow: 0 0 0 3px rgba(255,255,255,0.08);
+      transition: transform 160ms ease, box-shadow 160ms ease;
+    }
+
+    .control-row input[type="range"]:hover::-webkit-slider-thumb,
+    .control-row input[type="range"]:focus-visible::-webkit-slider-thumb {
+      transform: scale(1.08);
+      box-shadow: 0 0 0 5px rgba(255,255,255,0.10);
+    }
+
+    .control-row input[type="range"]:hover::-moz-range-thumb,
+    .control-row input[type="range"]:focus-visible::-moz-range-thumb {
+      transform: scale(1.08);
+      box-shadow: 0 0 0 5px rgba(255,255,255,0.10);
+    }
+
+    .control-row input[type="range"]:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 6px;
+    }
+
+    .presets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .presets button {
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.04);
+      color: rgba(255,255,255,0.82);
+      font-size: 0.92rem;
+      line-height: 1;
+      cursor: pointer;
+      transform: translateY(0);
+      transition:
+        background 180ms ease,
+        border-color 180ms ease,
+        color 180ms ease,
+        transform 180ms ease,
+        box-shadow 180ms ease;
+    }
+
+    .presets button:hover {
+      background: rgba(255,255,255,0.07);
+      transform: translateY(-1px);
+    }
+
+    .presets button.is-active {
+      background: rgba(120,166,255,0.14);
+      border-color: rgba(120,166,255,0.45);
+      color: white;
+      box-shadow: 0 0 0 1px rgba(120,166,255,0.14) inset;
+    }
+
+    .preset-description {
+      margin: 12px 0 0;
+      font-size: 0.94rem;
+    }
+
+    .inference-label,
+    .meter-label {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 0.92rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: minmax(110px, 1fr) minmax(120px, 2fr) 54px;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .bar-row span:first-child {
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+
+    .bar-row span:last-child {
+      text-align: right;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .bar {
+      height: 10px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    #bar-imaging,
+    #bar-relay,
+    #bar-idle,
+    #bar-leak {
+      height: 100%;
+      width: 0%;
+      border-radius: 999px;
+      transition: width 280ms ease;
+    }
+
+    #bar-imaging { background: linear-gradient(90deg, #ecb35f, #ffd084); }
+    #bar-relay { background: linear-gradient(90deg, #47c3bf, #79ece1); }
+    #bar-idle { background: linear-gradient(90deg, #8d97a7, #b8c0cf); }
+    #bar-leak { background: linear-gradient(90deg, #d55d71, #ff8892); }
+
+    .leak-meter {
+      margin-top: 22px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+
+    #leak-state-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 10px 0 6px;
+    }
+
+    .status-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #d55d71;
+      box-shadow: 0 0 0 0 rgba(213,93,113,0.35);
+      animation: pulseDot 2.4s ease-out infinite;
+    }
+
+    @keyframes pulseDot {
+      0% { box-shadow: 0 0 0 0 rgba(213,93,113,0.35); }
+      70% { box-shadow: 0 0 0 10px rgba(213,93,113,0); }
+      100% { box-shadow: 0 0 0 0 rgba(213,93,113,0); }
+    }
+
+    #leak-state {
+      color: #ffe0e5;
+      font-weight: 600;
+    }
+
+    .live-verdict {
+      margin: 0;
+      color: var(--text);
+    }
+
+    .toy-footer {
+      margin-top: 18px;
+      padding: 8px 4px 0;
+    }
+
+    .toy-footer .closing {
+      margin: 0 0 10px;
+      color: #dce8ff;
+      font-size: 1rem;
+    }
+
+    .toy-footer .honesty-note {
+      margin: 0;
+      font-size: 0.92rem;
+      max-width: 78ch;
+    }
+
+    @media (max-width: 920px) {
+      .toy-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .panel {
+        padding: 18px 16px;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .toy-shell {
+        width: min(100% - 20px, var(--maxw));
+        padding: 22px 0 36px;
+      }
+
+      .toy-header {
+        margin-bottom: 18px;
+      }
+
+      .toy-header .subtitle,
+      .toy-header .intro,
+      .toy-header .claim,
+      .panel-note,
+      .toy-footer .honesty-note {
+        font-size: 0.95rem;
+      }
+
+      .control-head label,
+      .control-head output {
+        font-size: 0.95rem;
+      }
+
+      .control-row input[type="range"]::-webkit-slider-thumb {
+        width: 22px;
+        height: 22px;
+        margin-top: -7px;
+      }
+
+      .control-row input[type="range"]::-moz-range-thumb {
+        width: 22px;
+        height: 22px;
+      }
+
+      .trace-row {
+        grid-template-columns: 64px 1fr 64px;
+        gap: 8px;
+      }
+
+      .bar-row {
+        grid-template-columns: 1fr;
+        gap: 6px;
+        margin-bottom: 14px;
+      }
+
+      .bar-row span:last-child {
+        text-align: left;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * {
+        scroll-behavior: auto !important;
+      }
+
+      .presets button,
+      #bar-imaging,
+      #bar-relay,
+      #bar-idle,
+      #bar-leak,
+      .control-row input[type="range"]::-webkit-slider-thumb,
+      .control-row input[type="range"]::-moz-range-thumb {
+        transition-duration: 0.01ms !important;
+      }
+
+      .status-dot {
+        animation: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="toy-shell">
+    <header class="toy-header">
+      <h1>Shared Bus, Shared Attack Surface</h1>
+      <p class="subtitle">An argumentative toy about housekeeping as a side-channel attack</p>
+      <p class="intro">
+        A hosted payload is supposed to sit behind a boundary: your sensor, my sensor, one spacecraft bus, no peeking through the wall. But the bus still reports its own health — where it is pointed, how much power is being drawn, what is heating up, and how regularly its state changes. Each channel looks harmless alone. This toy argues that on a multi-tenant satellite, those ordinary housekeeping signals can combine into a side channel that reveals what another tenant is doing, even when the payload data stays encrypted.
+      </p>
+      <p class="claim"><strong>Shared housekeeping can leak mission intent.</strong></p>
+    </header>
+
+    <section class="toy-layout">
+      <section class="panel panel-left">
+        <h2>Bus telemetry visible to all tenants</h2>
+        <p class="panel-note">The host spacecraft exposes simplified housekeeping channels shared across the bus interface.</p>
+
+        <div class="trace-row">
+          <div class="trace-label">Pointing</div>
+          <svg viewBox="0 0 240 36" class="trace-svg" aria-hidden="true">
+            <path id="trace-pointing-band" class="trace-band"></path>
+            <path id="trace-pointing" class="trace-line trace-pointing"></path>
+          </svg>
+          <div class="trace-state" id="state-pointing">coarse</div>
+        </div>
+
+        <div class="trace-row">
+          <div class="trace-label">Power</div>
+          <svg viewBox="0 0 240 36" class="trace-svg" aria-hidden="true">
+            <path id="trace-power" class="trace-line trace-power"></path>
+          </svg>
+          <div class="trace-state" id="state-power">faint</div>
+        </div>
+
+        <div class="trace-row">
+          <div class="trace-label">Heat</div>
+          <svg viewBox="0 0 240 36" class="trace-svg" aria-hidden="true">
+            <path id="trace-heat" class="trace-line trace-heat"></path>
+          </svg>
+          <div class="trace-state" id="state-heat">muted</div>
+        </div>
+
+        <div class="trace-row">
+          <div class="trace-label">Timing</div>
+          <svg viewBox="0 0 240 36" class="trace-svg" aria-hidden="true">
+            <path id="trace-timing" class="trace-line trace-timing"></path>
+          </svg>
+          <div class="trace-state" id="state-timing">jittered</div>
+        </div>
+
+        <div class="controls">
+          <div class="control-row" data-accent="pointing">
+            <div class="control-head">
+              <label for="pointing">Pointing</label>
+              <output id="pointing-output" for="pointing">45</output>
+            </div>
+            <input type="range" id="pointing" min="0" max="100" step="1" value="45" aria-label="Pointing detail">
+          </div>
+
+          <div class="control-row" data-accent="power">
+            <div class="control-head">
+              <label for="power">Power</label>
+              <output id="power-output" for="power">55</output>
+            </div>
+            <input type="range" id="power" min="0" max="100" step="1" value="55" aria-label="Power detail">
+          </div>
+
+          <div class="control-row" data-accent="heat">
+            <div class="control-head">
+              <label for="heat">Heat</label>
+              <output id="heat-output" for="heat">45</output>
+            </div>
+            <input type="range" id="heat" min="0" max="100" step="1" value="45" aria-label="Heat detail">
+          </div>
+
+          <div class="control-row" data-accent="timing">
+            <div class="control-head">
+              <label for="timing">Timing</label>
+              <output id="timing-output" for="timing">65</output>
+            </div>
+            <input type="range" id="timing" min="0" max="100" step="1" value="65" aria-label="Timing regularity">
+          </div>
+        </div>
+
+        <div class="presets">
+          <button data-preset="private">Private enough</button>
+          <button data-preset="normal">Commercially normal</button>
+          <button data-preset="betray">Shared bus betrays tenant</button>
+          <button data-preset="noise">Operator adds noise</button>
+        </div>
+
+        <p id="preset-description" class="preset-description"></p>
+      </section>
+
+      <section class="panel panel-right">
+        <h2>What the neighboring tenant can guess</h2>
+        <p class="panel-note">The observer never sees the payload. It only watches ordinary bus signals and asks what pattern they imply.</p>
+
+        <div class="inference">
+          <p class="inference-label">What the neighbor infers</p>
+
+          <div class="bar-row">
+            <span>Imaging pass</span>
+            <div class="bar"><div id="bar-imaging"></div></div>
+            <span id="score-imaging">0%</span>
+          </div>
+
+          <div class="bar-row">
+            <span>Relay or comms test</span>
+            <div class="bar"><div id="bar-relay"></div></div>
+            <span id="score-relay">0%</span>
+          </div>
+
+          <div class="bar-row">
+            <span>Mostly idle</span>
+            <div class="bar"><div id="bar-idle"></div></div>
+            <span id="score-idle">0%</span>
+          </div>
+        </div>
+
+        <div class="leak-meter">
+          <p class="meter-label">How revealing the bus is</p>
+          <div class="bar"><div id="bar-leak"></div></div>
+          <p id="leak-state-wrap"><span class="status-dot"></span><span id="leak-state">Weak leak</span></p>
+          <p id="live-verdict" class="live-verdict">Here the channels are weak enough that the neighbor sees activity, but not purpose.</p>
+        </div>
+      </section>
+    </section>
+
+    <footer class="toy-footer">
+      <p class="closing"><em>No housekeeping field says much alone; together, they reveal the tenant’s intent.</em></p>
+      <p class="honesty-note">
+        This is a toy, not a simulation. It reduces a hosted payload interface to four simplified observables — pointing, power, heat, and timing — to show how weak signals combine into a side channel, not to model any one spacecraft exactly.
+      </p>
+    </footer>
+  </main>
+
+  <script>
+    const sliders = {
+      pointing: document.getElementById("pointing"),
+      power: document.getElementById("power"),
+      heat: document.getElementById("heat"),
+      timing: document.getElementById("timing")
+    };
+
+    const outputs = {
+      pointing: document.getElementById("pointing-output"),
+      power: document.getElementById("power-output"),
+      heat: document.getElementById("heat-output"),
+      timing: document.getElementById("timing-output")
+    };
+
+    const bars = {
+      imaging: document.getElementById("bar-imaging"),
+      relay: document.getElementById("bar-relay"),
+      idle: document.getElementById("bar-idle"),
+      leak: document.getElementById("bar-leak")
+    };
+
+    const scores = {
+      imaging: document.getElementById("score-imaging"),
+      relay: document.getElementById("score-relay"),
+      idle: document.getElementById("score-idle")
+    };
+
+    const text = {
+      leakState: document.getElementById("leak-state"),
+      verdict: document.getElementById("live-verdict"),
+      presetDescription: document.getElementById("preset-description")
+    };
+
+    const traceEls = {
+      pointing: document.getElementById("trace-pointing"),
+      pointingBand: document.getElementById("trace-pointing-band"),
+      power: document.getElementById("trace-power"),
+      heat: document.getElementById("trace-heat"),
+      timing: document.getElementById("trace-timing"),
+      statePointing: document.getElementById("state-pointing"),
+      statePower: document.getElementById("state-power"),
+      stateHeat: document.getElementById("state-heat"),
+      stateTiming: document.getElementById("state-timing")
+    };
+
+    const presets = {
+      private: {
+        name: "Private enough",
+        pointing: 10,
+        power: 16,
+        heat: 12,
+        timing: 18,
+        description: "Coarse pointing, blurred power and thermal detail, irregular reporting. The neighboring tenant can tell something is active, but not what it is."
+      },
+      normal: {
+        name: "Commercially normal",
+        pointing: 38,
+        power: 52,
+        heat: 40,
+        timing: 62,
+        description: "Useful housekeeping, regular cadence, modest separation. Routine telemetry has become a usable clue stream."
+      },
+      betray: {
+        name: "Shared bus betrays tenant",
+        pointing: 88,
+        power: 82,
+        heat: 74,
+        timing: 90,
+        description: "Fine pointing, clear power signatures, visible heating, regular updates. No single channel gives the game away, but together they identify the mission mode."
+      },
+      noise: {
+        name: "Operator adds noise",
+        pointing: 52,
+        power: 58,
+        heat: 48,
+        timing: 18,
+        description: "The operator coarsens reporting and adds timing jitter. The leak weakens, but the shared bus still says more than expected."
+      }
+    };
+
+    let phase = 0;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+    function lerp(a, b, t) {
+      return a + (b - a) * t;
+    }
+
+    function rand(seed) {
+      const x = Math.sin(seed * 12.9898) * 43758.5453;
+      return x - Math.floor(x);
+    }
+
+    function buildActivitySequence(n, phase) {
+      const arr = [];
+      for (let i = 0; i < n; i++) {
+        const x = i / n;
+        const waveA = Math.sin((x * 10.5) + phase * 0.8);
+        const waveB = Math.sin((x * 24.0) + phase * 1.9) * 0.35;
+        const pulse = waveA + waveB;
+        arr.push(pulse > 0.55 ? 1 : 0);
+      }
+      return arr;
+    }
+
+    function movingAverage(arr, k = 3) {
+      return arr.map((_, i) => {
+        let s = 0, c = 0;
+        for (let j = i - k; j <= i + k; j++) {
+          if (j >= 0 && j < arr.length) {
+            s += arr[j];
+            c++;
+          }
+        }
+        return s / c;
+      });
+    }
+
+    function toPath(data, w = 240, h = 36, pad = 2) {
+      const min = Math.min(...data);
+      const max = Math.max(...data);
+      const span = Math.max(0.0001, max - min);
+      return data.map((v, i) => {
+        const x = pad + (i / (data.length - 1)) * (w - pad * 2);
+        const y = h - pad - ((v - min) / span) * (h - pad * 2);
+        return `${i === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
+      }).join(" ");
+    }
+
+    function toBandPath(center, spread, w = 240, h = 36, pad = 2) {
+      const upper = center.map((v, i) => v + spread[i]);
+      const lower = center.map((v, i) => v - spread[i]);
+      const all = upper.concat(lower);
+      const min = Math.min(...all);
+      const max = Math.max(...all);
+      const span = Math.max(0.0001, max - min);
+
+      const upPts = upper.map((v, i) => {
+        const x = pad + (i / (center.length - 1)) * (w - pad * 2);
+        const y = h - pad - ((v - min) / span) * (h - pad * 2);
+        return `${i === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
+      });
+
+      const lowPts = lower.slice().reverse().map((v, idx) => {
+        const i = lower.length - 1 - idx;
+        const x = pad + (i / (center.length - 1)) * (w - pad * 2);
+        const y = h - pad - ((v - min) / span) * (h - pad * 2);
+        return `L${x.toFixed(2)},${y.toFixed(2)}`;
+      });
+
+      return upPts.join(" ") + " " + lowPts.join(" ") + " Z";
+    }
+
+    function generatePointingTrace(activity, detail, phase) {
+      const center = activity.map((a, i) => {
+        const base = a ? 0.78 : 0.34;
+        const wobble = Math.sin(i * 0.32 + phase) * 0.06 * (1 - detail);
+        const noise = (rand(i + phase * 10) - 0.5) * 0.28 * (1 - detail);
+        return base + wobble + noise;
+      });
+
+      const spread = activity.map((a, i) => {
+        const baseSpread = a ? 0.22 : 0.18;
+        return lerp(baseSpread, 0.035, detail) + Math.abs(Math.sin(i * 0.4 + phase)) * 0.02 * (1 - detail);
+      });
+
+      return { center, spread };
+    }
+
+    function generatePowerTrace(activity, detail, phase) {
+      const data = activity.map((a, i) => {
+        const step = a ? 0.8 : 0.28;
+        const noise = (rand(100 + i + phase * 12) - 0.5) * lerp(0.22, 0.04, detail);
+        const edge = Math.sin(i * 1.4 + phase * 1.6) * 0.03;
+        return step + noise + edge;
+      });
+      return movingAverage(data, detail > 0.6 ? 0 : 1);
+    }
+
+    function generateHeatTrace(powerData, detail, phase) {
+      let carry = 0.22;
+      const data = powerData.map((p, i) => {
+        carry = carry * lerp(0.92, 0.97, detail) + p * lerp(0.07, 0.12, detail);
+        const noise = (rand(200 + i + phase * 8) - 0.5) * lerp(0.10, 0.02, detail);
+        return carry + noise;
+      });
+      return movingAverage(data, 2);
+    }
+
+    function generateTimingTrace(activity, detail, phase) {
+      const n = activity.length;
+      const data = [];
+      const pulseEvery = lerp(7.5, 4.0, detail);
+      for (let i = 0; i < n; i++) {
+        const jitter = (rand(300 + i * 0.7 + phase * 20) - 0.5) * lerp(2.8, 0.25, detail);
+        const period = pulseEvery + jitter;
+        const hit = Math.abs((i + phase * 3) % period) < 0.55 ? 1 : 0;
+        const amp = hit ? lerp(0.45, 0.95, detail) : 0.08 + activity[i] * 0.06;
+        data.push(amp + (rand(500 + i) - 0.5) * 0.03);
+      }
+      return data;
+    }
+
+    function descriptor(value, type) {
+      if (type === "pointing") {
+        if (value < 0.33) return "coarse";
+        if (value < 0.66) return "usable";
+        return "precise";
+      }
+      if (type === "power") {
+        if (value < 0.33) return "faint";
+        if (value < 0.66) return "legible";
+        return "distinctive";
+      }
+      if (type === "heat") {
+        if (value < 0.33) return "muted";
+        if (value < 0.66) return "suggestive";
+        return "revealing";
+      }
+      if (type === "timing") {
+        if (value < 0.33) return "jittered";
+        if (value < 0.66) return "regularized";
+        return "clocklike";
+      }
+      return "";
+    }
+
+    function leakState(leak) {
+      if (leak < 0.31) return "Weak leak";
+      if (leak < 0.56) return "Ambiguous but useful";
+      if (leak < 0.81) return "Operationally revealing";
+      return "Intent exposed";
+    }
+
+    function verdict(leak, imgPct, relPct, idlePct) {
+      const top = Math.max(imgPct, relPct, idlePct);
+      if (leak < 0.31) return "The neighbor can tell that something is happening, but not what.";
+      if (leak < 0.56) return "Ordinary housekeeping is becoming a usable clue stream.";
+      if (leak < 0.81 && top < 60) return "The leak is useful, but several mission modes still fit the pattern.";
+      if (leak < 0.81) return "No single field gives it away; the leak is in their agreement.";
+      return "The payload may stay encrypted, but the shared bus still reveals intent.";
+    }
+
+    function animateNumber(el, target, duration = 220) {
+      const start = parseInt(el.textContent, 10) || 0;
+      const delta = target - start;
+      const startTime = performance.now();
+
+      function step(now) {
+        const t = Math.min(1, (now - startTime) / duration);
+        const eased = 1 - Math.pow(1 - t, 3);
+        el.textContent = Math.round(start + delta * eased) + "%";
+        if (t < 1 && !reduceMotion.matches) requestAnimationFrame(step);
+        else if (t >= 1) el.textContent = target + "%";
+      }
+
+      if (reduceMotion.matches) {
+        el.textContent = target + "%";
+        return;
+      }
+      requestAnimationFrame(step);
+    }
+
+    function updateSliderUI(id) {
+      const slider = sliders[id];
+      const output = outputs[id];
+      const value = +slider.value;
+      output.textContent = value;
+      slider.parentElement.style.setProperty("--value", value + "%");
+    }
+
+    function updateAllSliderUI() {
+      Object.keys(sliders).forEach(updateSliderUI);
+    }
+
+    function updateToy() {
+      updateAllSliderUI();
+
+      const p = +sliders.pointing.value / 100;
+      const w = +sliders.power.value / 100;
+      const h = +sliders.heat.value / 100;
+      const t = +sliders.timing.value / 100;
+
+      const activity = buildActivitySequence(48, phase);
+      const pointingTrace = generatePointingTrace(activity, p, phase);
+      const powerTrace = generatePowerTrace(activity, w, phase);
+      const heatTrace = generateHeatTrace(powerTrace, h, phase);
+      const timingTrace = generateTimingTrace(activity, t, phase);
+
+      traceEls.pointing.setAttribute("d", toPath(pointingTrace.center));
+      traceEls.pointingBand.setAttribute("d", toBandPath(pointingTrace.center, pointingTrace.spread));
+      traceEls.power.setAttribute("d", toPath(powerTrace));
+      traceEls.heat.setAttribute("d", toPath(heatTrace));
+      traceEls.timing.setAttribute("d", toPath(timingTrace));
+
+      traceEls.pointing.style.opacity = String(0.45 + p * 0.55);
+      traceEls.power.style.opacity = String(0.45 + w * 0.55);
+      traceEls.heat.style.opacity = String(0.45 + h * 0.55);
+      traceEls.timing.style.opacity = String(0.45 + t * 0.55);
+      traceEls.pointingBand.style.opacity = String(0.25 + p * 0.35);
+
+      traceEls.statePointing.textContent = descriptor(p, "pointing");
+      traceEls.statePower.textContent = descriptor(w, "power");
+      traceEls.stateHeat.textContent = descriptor(h, "heat");
+      traceEls.stateTiming.textContent = descriptor(t, "timing");
+
+      const imaging = 1.00*p + 0.78*w + 0.82*h + 0.52*t;
+      const relay = 0.22*p + 0.88*w + 0.32*h + 1.02*t;
+      const idle = 0.08*p + 0.16*w + 0.16*h + 0.20*t + 0.12*(1-t) + 0.10*(1-p);
+
+      const total = imaging + relay + idle;
+      const imgPct = Math.round(100 * imaging / total);
+      const relPct = Math.round(100 * relay / total);
+      const idlePct = Math.round(100 * idle / total);
+
+      bars.imaging.style.width = imgPct + "%";
+      bars.relay.style.width = relPct + "%";
+      bars.idle.style.width = idlePct + "%";
+
+      animateNumber(scores.imaging, imgPct);
+      animateNumber(scores.relay, relPct);
+      animateNumber(scores.idle, idlePct);
+
+      const leak = 0.35*p + 0.25*w + 0.20*h + 0.20*t;
+      const leakPct = Math.round(leak * 100);
+      bars.leak.style.width = leakPct + "%";
+      text.leakState.textContent = leakState(leak);
+      text.verdict.textContent = verdict(leak, imgPct, relPct, idlePct);
+    }
+
+    function setActivePreset(key) {
+      document.querySelectorAll("[data-preset]").forEach(btn => {
+        btn.classList.toggle("is-active", btn.dataset.preset === key);
+      });
+    }
+
+    function applyPreset(key) {
+      const preset = presets[key];
+      sliders.pointing.value = preset.pointing;
+      sliders.power.value = preset.power;
+      sliders.heat.value = preset.heat;
+      sliders.timing.value = preset.timing;
+      text.presetDescription.textContent = preset.description;
+      setActivePreset(key);
+      updateToy();
+    }
+
+    document.querySelectorAll("[data-preset]").forEach(btn => {
+      btn.addEventListener("click", () => applyPreset(btn.dataset.preset));
+    });
+
+    Object.values(sliders).forEach(slider => {
+      slider.addEventListener("input", updateToy);
+    });
+
+    function animate() {
+      if (!reduceMotion.matches) {
+        phase += 0.018;
+        updateToy();
+        requestAnimationFrame(animate);
+      } else {
+        updateToy();
+      }
+    }
+
+    if (reduceMotion.addEventListener) {
+      reduceMotion.addEventListener("change", () => {
+        if (!reduceMotion.matches) requestAnimationFrame(animate);
+        else updateToy();
+      });
+    }
+
+    applyPreset("normal");
+    animate();
+  </script>
+</body>
+</html>
